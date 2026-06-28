@@ -1,0 +1,2038 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>仓位诊断与调仓建议 - {{report_date}}</title>
+    <style>
+      :root {
+        --bg: #f3efe6;
+        --paper: rgba(255, 251, 245, 0.92);
+        --paper-strong: #fffdf8;
+        --ink: #23313a;
+        --muted: #5d6a72;
+        --line: rgba(76, 93, 103, 0.16);
+        --accent: #9b4d35;
+        --accent-soft: rgba(155, 77, 53, 0.12);
+        --accent-deep: #6d2f1f;
+        --calm: #5c7a6b;
+        --calm-soft: rgba(92, 122, 107, 0.13);
+        --warn: #a46a1b;
+        --warn-soft: rgba(164, 106, 27, 0.14);
+        --danger: #b1463c;
+        --danger-soft: rgba(177, 70, 60, 0.12);
+        --shadow: 0 22px 48px rgba(43, 55, 61, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        font-family: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(155, 77, 53, 0.1), transparent 26%),
+          radial-gradient(circle at 85% 12%, rgba(92, 122, 107, 0.1), transparent 24%),
+          linear-gradient(180deg, #faf6ef 0%, var(--bg) 100%);
+        line-height: 1.7;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .shell {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 28px 18px 56px;
+      }
+
+      .hero {
+        position: relative;
+        overflow: hidden;
+        background:
+          linear-gradient(135deg, rgba(255, 247, 238, 0.98) 0%, rgba(248, 242, 233, 0.96) 52%, rgba(239, 245, 241, 0.94) 100%);
+        border: 1px solid rgba(155, 77, 53, 0.16);
+        border-radius: 28px;
+        padding: 30px;
+        box-shadow: var(--shadow);
+      }
+
+      .hero::after {
+        content: "";
+        position: absolute;
+        inset: auto -80px -90px auto;
+        width: 280px;
+        height: 280px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(155, 77, 53, 0.16), transparent 70%);
+        pointer-events: none;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      h4 {
+        font-family: "Noto Serif SC", "Songti SC", serif;
+        letter-spacing: 0.01em;
+      }
+
+      h1 {
+        margin: 14px 0 10px;
+        font-size: clamp(34px, 4.6vw, 56px);
+        line-height: 1.1;
+      }
+
+      .hero-copy {
+        max-width: 880px;
+      }
+
+      .hero-copy p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.95fr);
+        gap: 24px;
+        margin-top: 24px;
+      }
+
+      .metric-grid,
+      .signal-grid,
+      .quick-grid,
+      .summary-grid,
+      .detail-grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .metric-grid {
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      }
+
+      .metric-card,
+      .signal-card,
+      .quick-card,
+      .panel,
+      .side-card,
+      .fund-card {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        box-shadow: 0 12px 28px rgba(43, 55, 61, 0.05);
+      }
+
+      .metric-card {
+        padding: 16px 18px;
+      }
+
+      .metric-label {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 6px;
+      }
+
+      .metric-value {
+        display: block;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .signal-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .signal-card {
+        padding: 18px;
+      }
+
+      .signal-card h3 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+
+      .signal-card p {
+        margin: 0;
+      }
+
+      .signal-card.critical {
+        background: linear-gradient(180deg, rgba(255, 245, 243, 0.95) 0%, rgba(255, 249, 247, 0.95) 100%);
+        border-color: rgba(177, 70, 60, 0.22);
+      }
+
+      .signal-card.balance {
+        background: linear-gradient(180deg, rgba(247, 244, 235, 0.95) 0%, rgba(255, 251, 245, 0.95) 100%);
+        border-color: rgba(164, 106, 27, 0.2);
+      }
+
+      .signal-card.watch {
+        background: linear-gradient(180deg, rgba(241, 247, 243, 0.95) 0%, rgba(250, 253, 251, 0.95) 100%);
+        border-color: rgba(92, 122, 107, 0.18);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 24px;
+        margin-top: 24px;
+      }
+
+      .toc,
+      .content {
+        min-width: 0;
+      }
+
+      .side-card {
+        position: sticky;
+        top: 18px;
+        padding: 18px;
+      }
+
+      .side-card h2 {
+        margin: 0 0 14px;
+        font-size: 17px;
+      }
+
+      .toc a {
+        display: block;
+        padding: 9px 11px;
+        margin-bottom: 6px;
+        border-radius: 12px;
+        text-decoration: none;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .toc a:hover {
+        background: rgba(155, 77, 53, 0.08);
+        color: var(--accent-deep);
+      }
+
+      .toc .toc-sub {
+        padding-left: 22px;
+        font-size: 13px;
+      }
+
+
+      .fund-ref {
+        position: relative;
+        display: inline-flex;
+        align-items: baseline;
+        color: var(--accent-deep);
+        font-weight: 700;
+        cursor: pointer;
+        text-decoration: underline dotted rgba(155, 77, 53, 0.42);
+        text-underline-offset: 3px;
+      }
+
+      .fund-ref-text {
+        color: inherit;
+      }
+
+      .fund-hover-card {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 10px);
+        width: 240px;
+        padding: 12px 13px;
+        border: 1px solid rgba(155, 77, 53, 0.18);
+        border-radius: 14px;
+        background: rgba(255, 252, 247, 0.98);
+        box-shadow: 0 16px 34px rgba(80,56,36,0.16);
+        opacity: 0;
+        transform: translateY(6px);
+        pointer-events: none;
+        transition: opacity .16s ease, transform .16s ease;
+        z-index: 9999;
+      }
+
+      .fund-ref:hover .fund-hover-card,
+      .fund-ref:focus-visible .fund-hover-card {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .fund-hover-name {
+        display: block;
+        margin-bottom: 2px;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      .fund-hover-code {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .fund-hover-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+
+      .fund-hover-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 12px;
+      }
+
+      .fund-hover-label {
+        color: var(--muted);
+      }
+
+      .fund-hover-value {
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .summary-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-top: 16px;
+      }
+
+      .quick-card {
+        padding: 18px;
+      }
+
+      .quick-card h3 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+
+      .action-summary-grid {
+        display: grid;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .action-summary-card,
+      .action-group {
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.58);
+        box-shadow: 0 12px 28px rgba(43, 55, 61, 0.04);
+      }
+
+      .action-summary-card {
+        display: grid;
+        grid-template-columns: minmax(118px, 148px) 72px minmax(0, 1fr);
+        gap: 14px;
+        align-items: center;
+        padding: 16px 18px;
+      }
+
+      .action-summary-card .label {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .action-summary-card .value {
+        display: block;
+        margin-top: 0;
+        font-size: 28px;
+        font-weight: 800;
+        line-height: 1;
+        text-align: center;
+      }
+
+      .action-summary-card p {
+        margin: 0;
+        font-size: 14px;
+      }
+
+      .action-summary-card.priority {
+        background: linear-gradient(180deg, rgba(255, 245, 243, 0.95) 0%, rgba(255, 249, 247, 0.95) 100%);
+        border-color: rgba(177, 70, 60, 0.22);
+      }
+
+      .action-summary-card.control {
+        background: linear-gradient(180deg, rgba(247, 244, 235, 0.95) 0%, rgba(255, 251, 245, 0.95) 100%);
+        border-color: rgba(164, 106, 27, 0.2);
+      }
+
+      .action-summary-card.keep,
+      .action-summary-card.pending {
+        background: linear-gradient(180deg, rgba(241, 247, 243, 0.95) 0%, rgba(250, 253, 251, 0.95) 100%);
+        border-color: rgba(92, 122, 107, 0.18);
+      }
+
+      .action-groups {
+        display: grid;
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .action-group {
+        padding: 20px;
+      }
+
+      .action-group.priority {
+        background: linear-gradient(180deg, rgba(255, 247, 244, 0.94) 0%, rgba(255, 252, 249, 0.9) 100%);
+      }
+
+      .action-group.control {
+        background: linear-gradient(180deg, rgba(250, 246, 238, 0.94) 0%, rgba(255, 251, 245, 0.9) 100%);
+      }
+
+      .action-group.keep,
+      .action-group.pending {
+        background: linear-gradient(180deg, rgba(243, 248, 245, 0.94) 0%, rgba(255, 255, 252, 0.9) 100%);
+      }
+
+      .group-head {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+
+      .group-kicker {
+        display: inline-flex;
+        width: fit-content;
+        align-items: center;
+        padding: 6px 11px;
+        border-radius: 999px;
+        background: rgba(35, 49, 58, 0.06);
+        color: var(--accent-deep);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+      }
+
+      .group-head h3 {
+        margin: 0;
+        font-size: 24px;
+      }
+
+      .group-head p {
+        margin: 0;
+        max-width: 860px;
+      }
+
+      .action-card-grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .action-card-grid .fund-card {
+        display: grid;
+        grid-template-columns: minmax(220px, 300px) minmax(240px, 1fr);
+        grid-template-areas:
+          "header list"
+          "meta list";
+        gap: 14px 18px;
+        padding: 18px;
+      }
+
+      .action-card-grid .fund-header {
+        grid-area: header;
+        margin-bottom: 0;
+      }
+
+      .action-card-grid .fund-meta {
+        grid-area: meta;
+        grid-template-columns: 1fr;
+        gap: 8px;
+        margin-bottom: 0;
+      }
+
+      .action-card-grid .decision-list {
+        grid-area: list;
+      }
+
+      .keep-stack {
+        display: grid;
+        gap: 10px;
+        margin-top: 8px;
+      }
+
+      .keep-item {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 14px 16px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.66);
+        border: 1px solid rgba(76, 93, 103, 0.1);
+      }
+
+      .keep-name {
+        display: block;
+        color: var(--ink);
+        width: 100%;
+        font-size: 15px;
+        line-height: 1.45;
+      }
+
+      .keep-note {
+        display: block;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.6;
+        width: 100%;
+      }
+
+      .quick-card p,
+      .quick-card li,
+      .panel p,
+      .panel li,
+      .fund-card p,
+      .fund-card li,
+      .footer-note {
+        color: var(--muted);
+      }
+
+      .content {
+        display: grid;
+        gap: 18px;
+      }
+
+      .panel {
+        padding: 24px;
+      }
+
+      .panel h2 {
+        margin: 0 0 14px;
+        font-size: clamp(24px, 2.3vw, 32px);
+      }
+
+      .panel h3 {
+        margin: 0 0 10px;
+        font-size: 19px;
+      }
+
+      .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 18px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .chip.calm {
+        background: var(--calm-soft);
+        color: var(--calm);
+      }
+
+      .chip.warn {
+        background: var(--warn-soft);
+        color: var(--warn);
+      }
+
+      .chip.danger {
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+        gap: 18px;
+      }
+
+      .subpanel {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.48);
+      }
+
+      .subpanel h4 {
+        margin: 0 0 8px;
+        font-size: 17px;
+      }
+
+      .execution-stack {
+        display: grid;
+        gap: 18px;
+      }
+
+      .name-line {
+        margin: 0;
+        color: var(--ink);
+        font-weight: 600;
+        line-height: 1.7;
+      }
+
+      .name-line + .name-line {
+        margin-top: 8px;
+      }
+
+
+      .chapter-command {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .command-panel,
+      .decision-rail,
+      .chart-card,
+      .insight-card {
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.58);
+        box-shadow: 0 12px 28px rgba(43, 55, 61, 0.04);
+      }
+
+      .command-panel {
+        position: relative;
+        overflow: hidden;
+        padding: 24px;
+        background: linear-gradient(135deg, rgba(255, 246, 236, 0.98) 0%, rgba(248, 242, 232, 0.95) 52%, rgba(241, 247, 243, 0.92) 100%);
+      }
+
+      .command-panel::after {
+        content: "";
+        position: absolute;
+        inset: auto -48px -58px auto;
+        width: 180px;
+        height: 180px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(155, 77, 53, 0.16), transparent 72%);
+        pointer-events: none;
+      }
+
+      .command-kicker,
+      .chart-kicker {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 11px;
+        border-radius: 999px;
+        background: rgba(155, 77, 53, 0.1);
+        color: var(--accent-deep);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+      }
+
+      .command-panel h3 {
+        margin: 14px 0 10px;
+        font-size: clamp(28px, 3vw, 40px);
+        line-height: 1.15;
+      }
+
+      .command-panel p {
+        margin: 0;
+        max-width: 700px;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .gap-badges {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 18px;
+      }
+
+      .gap-badge {
+        padding: 14px 15px;
+        border-radius: 18px;
+        border: 1px solid rgba(76, 93, 103, 0.08);
+        background: rgba(255, 253, 249, 0.88);
+      }
+
+      .gap-badge span,
+      .gap-badge small {
+        display: block;
+      }
+
+      .gap-badge span {
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .gap-badge strong {
+        display: block;
+        margin-top: 6px;
+        font-size: 28px;
+        line-height: 1;
+      }
+
+      .gap-badge small {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .gap-badge.danger strong,
+      .gap-badge.danger span {
+        color: var(--danger);
+      }
+
+      .gap-badge.warn strong,
+      .gap-badge.warn span {
+        color: var(--warn);
+      }
+
+      .gap-badge.calm strong,
+      .gap-badge.calm span {
+        color: var(--calm);
+      }
+
+      .decision-rail {
+        padding: 18px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .decision-step {
+        display: grid;
+        grid-template-columns: 52px minmax(0, 1fr);
+        gap: 14px;
+        align-items: start;
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.7);
+        border: 1px solid rgba(76, 93, 103, 0.08);
+      }
+
+      .step-index {
+        display: grid;
+        place-items: center;
+        width: 52px;
+        height: 52px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, rgba(155, 77, 53, 0.16) 0%, rgba(216, 177, 106, 0.22) 100%);
+        color: var(--accent-deep);
+        font-size: 16px;
+        font-weight: 800;
+      }
+
+      .decision-step h4 {
+        margin: 2px 0 6px;
+        font-size: 18px;
+      }
+
+      .decision-step p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .chart-stage {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .chart-card {
+        padding: 18px;
+      }
+
+      .chart-card.full-width {
+        width: 100%;
+      }
+
+      .allocation-compare-layout {
+        display: grid;
+        grid-template-columns: minmax(180px, 0.72fr) minmax(0, 1.5fr) minmax(180px, 0.72fr);
+        gap: 18px;
+        align-items: center;
+        margin-top: 16px;
+      }
+
+      .legend-rail {
+        min-width: 0;
+      }
+
+      .legend-stack {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+            .legend-item {
+        display: grid;
+        grid-template-columns: 12px minmax(0, 1fr) auto;
+        gap: 4px 10px;
+        align-items: center;
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.54);
+        border: 1px solid rgba(76, 93, 103, 0.08);
+      }
+
+      .legend-swatch {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+      }
+
+      .legend-label {
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .legend-value {
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .legend-amount {
+        grid-column: 2 / -1;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .allocation-center {
+        display: flex;
+        justify-content: center;
+      }
+
+      .allocation-pair {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
+        gap: 32px;
+        width: 100%;
+        max-width: 720px;
+      }
+
+      .allocation-unit {
+        display: grid;
+        justify-items: center;
+        text-align: center;
+      }
+
+      .allocation-unit h5 {
+        margin: 0;
+        font-family: "Noto Serif SC", "Songti SC", serif;
+        font-size: 20px;
+      }
+
+      .allocation-unit p {
+        margin: 8px 0 0;
+        max-width: 280px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .chart-head h4 {
+        margin: 12px 0 6px;
+        font-size: 22px;
+      }
+
+      .chart-caption {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .chart-surface {
+        width: 100%;
+        margin-top: 16px;
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(247, 243, 236, 0.56) 100%);
+        border: 1px solid rgba(76, 93, 103, 0.08);
+      }
+
+      .chart-surface-wide {
+        height: 420px;
+        min-height: 420px;
+      }
+
+      .chart-surface-mini {
+        width: min(280px, 100%);
+        height: 280px;
+        margin-top: 8px;
+      }
+
+      .chart-empty {
+        display: grid;
+        place-items: center;
+        min-height: inherit;
+        padding: 20px;
+        color: var(--muted);
+        font-size: 14px;
+        text-align: center;
+      }
+
+      .insight-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .insight-card {
+        padding: 18px;
+      }
+
+      .insight-card h4 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      .insight-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .insight-list li {
+        position: relative;
+        padding: 10px 12px 10px 28px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.64);
+        border: 1px solid rgba(76, 93, 103, 0.08);
+        color: var(--muted);
+      }
+
+      .insight-list li::before {
+        content: "";
+        position: absolute;
+        left: 12px;
+        top: 17px;
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--accent) 0%, #d8b16a 100%);
+      }
+
+      .chapter-spotlight {
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .spotlight-main {
+        padding: 22px;
+        border: 1px solid rgba(155, 77, 53, 0.14);
+        border-radius: 22px;
+        background: linear-gradient(135deg, rgba(255, 248, 240, 0.96) 0%, rgba(247, 244, 236, 0.94) 100%);
+      }
+
+      .spotlight-kicker {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 11px;
+        border-radius: 999px;
+        background: rgba(155, 77, 53, 0.1);
+        color: var(--accent-deep);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+      }
+
+      .spotlight-main h3 {
+        margin: 12px 0 8px;
+        font-size: clamp(24px, 2.8vw, 34px);
+        line-height: 1.2;
+      }
+
+      .spotlight-main p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .chip-row.tight {
+        margin-top: 14px;
+        margin-bottom: 0;
+      }
+
+      .spotlight-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+
+      .focus-card {
+        padding: 16px 18px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.58);
+        box-shadow: 0 10px 22px rgba(43, 55, 61, 0.04);
+      }
+
+      .focus-label {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--accent-deep);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .focus-card h4 {
+        margin: 0 0 6px;
+        font-size: 18px;
+      }
+
+      .focus-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .diagnosis-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .compact-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .compact-list li {
+        display: grid;
+        grid-template-columns: 12px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.58);
+        border: 1px solid rgba(76, 93, 103, 0.08);
+        color: var(--muted);
+      }
+
+      .compact-list li::before {
+        content: "";
+        width: 12px;
+        height: 12px;
+        margin-top: 6px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--accent) 0%, #d8b16a 100%);
+      }
+
+      .allocation-visuals {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .pie-card {
+        position: relative;
+        overflow: hidden;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.55);
+      }
+
+      .pie-card::before {
+        content: "";
+        position: absolute;
+        inset: -30% auto auto -12%;
+        width: 150px;
+        height: 150px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(155, 77, 53, 0.12), transparent 70%);
+        pointer-events: none;
+      }
+
+      .pie-card h4 {
+        margin: 0 0 6px;
+        font-size: 18px;
+      }
+
+      .pie-card p {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .pie-layout {
+        display: grid;
+        grid-template-columns: 180px minmax(0, 1fr);
+        gap: 18px;
+        align-items: center;
+      }
+
+      .pie-shell {
+        position: relative;
+        width: 180px;
+        height: 180px;
+        margin: 0 auto;
+      }
+
+      .pie-chart {
+        position: relative;
+        overflow: hidden;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        border: 1px solid rgba(76, 93, 103, 0.1);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+        opacity: 0;
+        transform: scale(0.84) rotate(-30deg);
+        filter: blur(8px) saturate(0.7);
+        transition: transform 0.95s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.45s ease, filter 0.95s ease;
+      }
+
+      .pie-chart::after {
+        content: "";
+        position: absolute;
+        inset: -1px;
+        border-radius: 50%;
+        background: rgba(255, 252, 247, 0.96);
+        transform-origin: right center;
+        pointer-events: none;
+      }
+
+      .pie-hole {
+        position: absolute;
+        inset: 50%;
+        width: 88px;
+        height: 88px;
+        transform: translate(-50%, -50%);
+        border-radius: 50%;
+        background: rgba(255, 252, 247, 0.96);
+        border: 1px solid rgba(76, 93, 103, 0.08);
+        display: grid;
+        place-items: center;
+        text-align: center;
+        padding: 10px;
+        opacity: 0;
+        transition: opacity 0.4s ease 0.32s, transform 0.6s ease 0.32s;
+        transform: translate(-50%, -50%) scale(0.88);
+      }
+
+      .pie-hole span {
+        display: block;
+      }
+
+      .pie-hole .hole-label {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .pie-hole .hole-value {
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1.3;
+      }
+
+      .data-drawer {
+        margin-top: 18px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.48);
+        overflow: hidden;
+      }
+
+      .data-drawer summary {
+        cursor: pointer;
+        list-style: none;
+        padding: 16px 18px;
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      .data-drawer summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .data-drawer summary::after {
+        content: "+";
+        float: right;
+        color: var(--accent-deep);
+        font-size: 18px;
+      }
+
+      .data-drawer[open] summary::after {
+        content: "-";
+      }
+
+      .data-drawer .table-wrap {
+        margin: 0 18px 18px;
+      }
+
+      @keyframes pie-reveal {
+        from {
+          transform: scaleX(1);
+          opacity: 1;
+        }
+        to {
+          transform: scaleX(0);
+          opacity: 0;
+        }
+      }
+
+      @keyframes legend-rise {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 720px;
+        background: rgba(255, 255, 255, 0.62);
+      }
+
+      th,
+      td {
+        padding: 14px 16px;
+        text-align: left;
+        border-bottom: 1px solid rgba(76, 93, 103, 0.1);
+        vertical-align: top;
+      }
+
+      thead th {
+        background: rgba(35, 49, 58, 0.04);
+        color: var(--ink);
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      tbody tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .detail-grid {
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      }
+
+      .fund-card {
+        padding: 20px;
+      }
+
+      .fund-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: flex-start;
+        margin-bottom: 14px;
+      }
+
+      .fund-header h3 {
+        margin: 0;
+        font-size: 21px;
+      }
+
+      .fund-role {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(35, 49, 58, 0.06);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .fund-meta {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      .fund-meta .meta-box {
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.66);
+        border: 1px solid rgba(76, 93, 103, 0.1);
+      }
+
+      .meta-box span {
+        display: block;
+      }
+
+      .meta-box .label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .meta-box .value {
+        font-size: 15px;
+        font-weight: 700;
+        margin-top: 4px;
+      }
+
+      .decision-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .decision-list li {
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.66);
+        border: 1px solid rgba(76, 93, 103, 0.1);
+      }
+
+      .decision-list strong {
+        display: block;
+        color: var(--ink);
+        margin-bottom: 4px;
+      }
+
+      .footer-note {
+        margin-top: 16px;
+        font-size: 13px;
+      }
+
+      footer {
+        margin-top: 20px;
+        padding: 18px 6px 0;
+        color: var(--muted);
+        font-size: 13px;
+        text-align: center;
+      }
+
+      @media (max-width: 1100px) {
+        .hero-grid,
+        .layout,
+        .chapter-command,
+        .insight-grid,
+        .allocation-compare-layout,
+        .allocation-pair,
+        .chapter-spotlight,
+        .diagnosis-grid,
+        .split,
+        .allocation-visuals,
+        .pie-layout {
+          grid-template-columns: 1fr;
+        }
+
+        .side-card {
+          position: static;
+        }
+
+  
+      .fund-ref {
+        position: relative;
+        display: inline-flex;
+        align-items: baseline;
+        color: var(--accent-deep);
+        font-weight: 700;
+        cursor: pointer;
+        text-decoration: underline dotted rgba(155, 77, 53, 0.42);
+        text-underline-offset: 3px;
+      }
+
+      .fund-ref-text {
+        color: inherit;
+      }
+
+      .fund-hover-card {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 10px);
+        width: 240px;
+        padding: 12px 13px;
+        border: 1px solid rgba(155, 77, 53, 0.18);
+        border-radius: 14px;
+        background: rgba(255, 252, 247, 0.98);
+        box-shadow: 0 16px 34px rgba(80,56,36,0.16);
+        opacity: 0;
+        transform: translateY(6px);
+        pointer-events: none;
+        transition: opacity .16s ease, transform .16s ease;
+        z-index: 9999;
+      }
+
+      .fund-ref:hover .fund-hover-card,
+      .fund-ref:focus-visible .fund-hover-card {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .fund-hover-name {
+        display: block;
+        margin-bottom: 2px;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      .fund-hover-code {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .fund-hover-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+
+      .fund-hover-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 12px;
+      }
+
+      .fund-hover-label {
+        color: var(--muted);
+      }
+
+      .fund-hover-value {
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .summary-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .action-summary-card {
+          grid-template-columns: 118px 72px minmax(0, 1fr);
+        }
+
+        .legend-stack {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .legend-connector {
+          display: none;
+        }
+
+        .spotlight-actions {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 760px) {
+        .shell {
+          padding: 18px 12px 36px;
+        }
+
+        .hero,
+        .panel,
+        .fund-card,
+        .side-card {
+          padding: 18px;
+          border-radius: 20px;
+        }
+
+        .fund-meta {
+          grid-template-columns: 1fr;
+        }
+
+        .gap-badges {
+          grid-template-columns: 1fr;
+        }
+
+        .action-summary-card {
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+
+        .action-summary-card .value {
+          text-align: left;
+        }
+
+        .action-card-grid .fund-card {
+          grid-template-columns: 1fr;
+          grid-template-areas:
+            "header"
+            "meta"
+            "list";
+        }
+
+        .decision-step {
+          grid-template-columns: 44px minmax(0, 1fr);
+        }
+
+        .step-index {
+          width: 44px;
+          height: 44px;
+          border-radius: 14px;
+        }
+
+        .chart-surface-wide {
+          min-height: 320px;
+        }
+
+        .legend-stack {
+          grid-template-columns: 1fr;
+        }
+
+        .chart-surface-mini {
+          width: min(240px, 100%);
+          height: 240px;
+        }
+
+        .pie-shell {
+          width: 160px;
+          height: 160px;
+        }
+
+        .spotlight-actions {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <span class="eyebrow">仓位诊断与调仓建议</span>
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <h1>{{hero_title}}</h1>
+            <p>{{hero_lede}}</p>
+
+            <div class="metric-grid">
+              <article class="metric-card">
+                <span class="metric-label">分析日期</span>
+                <span class="metric-value">{{report_date}}</span>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">当前持仓数</span>
+                <span class="metric-value">{{holdings_count}}</span>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">当前总诊断</span>
+                <span class="metric-value">{{portfolio_diagnosis}}</span>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label">优先动作</span>
+                <span class="metric-value">{{priority_action}}</span>
+              </article>
+            </div>
+          </div>
+
+          <div class="signal-grid">
+            <article class="signal-card critical">
+              <h3>{{signal_1_title}}</h3>
+              <p>{{signal_1_body}}</p>
+            </article>
+            <article class="signal-card balance">
+              <h3>{{signal_2_title}}</h3>
+              <p>{{signal_2_body}}</p>
+            </article>
+            <article class="signal-card watch">
+              <h3>{{signal_3_title}}</h3>
+              <p>{{signal_3_body}}</p>
+            </article>
+          </div>
+        </div>
+      </header>
+
+      <div class="layout">
+        <aside class="toc">
+          <div class="side-card">
+            <h2>目录</h2>
+            <a href="#sec-1">一、当前仓位诊断</a>
+            <a href="#sec-2">二、逐基金判断</a>
+            <a class="toc-sub" href="#fund-summary">动作总览</a>
+            <a class="toc-sub" href="#group-priority">优先处理</a>
+            <a class="toc-sub" href="#group-control">停止追加</a>
+            <a class="toc-sub" href="#group-keep">结构保留</a>
+            <a class="toc-sub" href="#group-pending">待补判断</a>
+            <a href="#sec-3">三、直接执行</a>
+            <a href="#sec-4">四、最短结论</a>
+          </div>
+        </aside>
+
+        <main class="content">
+          <section id="sec-1" class="panel">
+            <h2>一、当前仓位诊断</h2>
+            <div class="chapter-command">
+              <div class="command-panel">
+                <span class="command-kicker">结构调仓指令</span>
+                <h3>{{priority_action}}</h3>
+                <p>第一章不再平铺解释，而是先把组合错配拆成可执行动作。当前主要问题是：{{portfolio_diagnosis}}。</p>
+                <div class="gap-badges">
+                  {{allocation_gap_badges_html}}
+                </div>
+              </div>
+
+              <div class="decision-rail">
+                <article class="decision-step">
+                  <div class="step-index">01</div>
+                  <div>
+                    <h4>{{quick_card_1_title}}</h4>
+                    <p>{{quick_card_1_body}}</p>
+                  </div>
+                </article>
+                <article class="decision-step">
+                  <div class="step-index">02</div>
+                  <div>
+                    <h4>{{quick_card_2_title}}</h4>
+                    <p>{{quick_card_2_body}}</p>
+                  </div>
+                </article>
+                <article class="decision-step">
+                  <div class="step-index">03</div>
+                  <div>
+                    <h4>{{quick_card_3_title}}</h4>
+                    <p>{{quick_card_3_body}}</p>
+                  </div>
+                </article>
+              </div>
+            </div>
+
+            <div class="chart-stage">
+              <article class="chart-card">
+                <div class="chart-head">
+                  <span class="chart-kicker">双结构对照</span>
+                  <h4>当前和目标结构并排看清</h4>
+                  <p class="chart-caption">左右图例直接写出占比和金额，不再额外展开明细表，第一眼就能看清每一层资产放了多少钱。</p>
+                </div>
+                <div class="allocation-compare-layout">
+                  <div class="legend-rail left" id="current-allocation-legend"></div>
+                  <div class="allocation-center">
+                    <div class="allocation-pair">
+                      <div class="allocation-unit">
+                        <h5>{{current_pie_title}}</h5>
+                        <p>{{current_pie_lede}}</p>
+                        <div id="current-allocation-chart" class="chart-surface chart-surface-mini" data-center-label="{{current_pie_center}}"></div>
+                      </div>
+                      <div class="allocation-unit">
+                        <h5>{{target_pie_title}}</h5>
+                        <p>{{target_pie_lede}}</p>
+                        <div id="target-allocation-chart" class="chart-surface chart-surface-mini" data-center-label="{{target_pie_center}}"></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="legend-rail right" id="target-allocation-legend"></div>
+                </div>
+              </article>
+            </div>
+
+            <div class="insight-grid">
+              <article class="insight-card">
+                <h4>画像约束</h4>
+                <ul class="insight-list">
+                  {{profile_constraints_html}}
+                </ul>
+              </article>
+              <article class="insight-card">
+                <h4>结构诊断</h4>
+                <ul class="insight-list">
+                  {{structure_findings_html}}
+                </ul>
+              </article>
+            </div>
+
+            <script type="application/json" id="current-allocation-data">{{current_allocation_json}}</script>
+            <script type="application/json" id="target-allocation-data">{{target_allocation_json}}</script>
+          </section>
+
+          <section id="sec-2" class="panel">
+            <h2>二、逐基金判断</h2>
+            <p>{{fund_section_lede}}</p>
+
+            <div id="fund-summary" class="action-summary-grid">
+              {{action_summary_cards_html}}
+            </div>
+
+            <div class="action-groups">
+              <section id="group-priority" class="action-group priority">
+                <div class="group-head">
+                  <span class="group-kicker">优先处理</span>
+                  <h3>{{priority_group_title}}</h3>
+                  <p>{{priority_group_lede}}</p>
+                </div>
+
+                <div class="action-card-grid">
+                  {{priority_fund_cards_html}}
+                </div>
+              </section>
+
+              <section id="group-control" class="action-group control">
+                <div class="group-head">
+                  <span class="group-kicker">停止追加</span>
+                  <h3>{{control_group_title}}</h3>
+                  <p>{{control_group_lede}}</p>
+                </div>
+
+                <div class="action-card-grid">
+                  {{control_fund_cards_html}}
+                </div>
+              </section>
+
+              <section id="group-keep" class="action-group keep">
+                <div class="group-head">
+                  <span class="group-kicker">结构保留</span>
+                  <h3>{{keep_group_title}}</h3>
+                  <p>{{keep_group_lede}}</p>
+                </div>
+
+                <div class="keep-stack">
+                  {{keep_list_html}}
+                </div>
+              </section>
+
+              <section id="group-pending" class="action-group pending">
+                <div class="group-head">
+                  <span class="group-kicker">待补判断</span>
+                  <h3>{{pending_group_title}}</h3>
+                  <p>{{pending_group_lede}}</p>
+                </div>
+
+                <div class="action-card-grid">
+                  {{pending_fund_cards_html}}
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section id="sec-3" class="panel">
+            <h2>三、直接执行</h2>
+            <div class="execution-stack">
+              <div class="split">
+                <div class="subpanel">
+                  <h4>需要调仓</h4>
+                  {{rebalance_reference_html}}
+                </div>
+                <div class="subpanel">
+                  <h4>待补数据</h4>
+                  <p class="name-line">{{pending_names}}</p>
+                </div>
+              </div>
+
+              <div class="split">
+                <div class="subpanel">
+                  <h4>要用钱先出</h4>
+                  <p class="name-line">{{liquidity_order_names}}</p>
+                </div>
+                <div class="subpanel">
+                  <h4>有新钱先去</h4>
+                  <p class="name-line">{{add_funds_order_names}}</p>
+                </div>
+              </div>
+            </div>
+
+          </section>
+
+          <section id="sec-4" class="panel">
+            <h2>四、最短结论</h2>
+            <div class="subpanel">
+              <p>{{bottom_line_html}}</p>
+            </div>
+            <p class="footer-note">{{footer_note}}</p>
+          </section>
+        </main>
+      </div>
+
+      <footer>{{footer_text}}</footer>
+    </div>
+
+    <script type="application/json" id="fund-cards-data">{{fund_cards_json}}</script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <script>
+      (() => {
+        const parseJson = (id) => {
+          const node = document.getElementById(id);
+          if (!node) {
+            return null;
+          }
+
+          const raw = node.textContent.trim();
+          if (!raw || raw.includes("{{")) {
+            return null;
+          }
+
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return null;
+          }
+        };
+
+        const renderFallback = (element, message) => {
+          if (!element) {
+            return;
+          }
+
+          element.innerHTML = `<div class="chart-empty">${message}</div>`;
+        };
+
+        const formatPercent = (value) => `${Number(value).toFixed(2).replace(/\.?0+$/, "")}%`;
+
+        const formatAmount = (value) => {
+          if (value === undefined || value === null || value === "") {
+            return "";
+          }
+
+          if (typeof value === "string") {
+            return value;
+          }
+
+          return `${Number(value).toLocaleString("zh-CN", {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2,
+          })} 元`;
+        };
+
+        const renderLegend = (element, data) => {
+          if (!element || !data) {
+            return;
+          }
+
+          const items = data
+            .map(
+              (item) => `
+                <li class="legend-item">
+                  <span class="legend-swatch" style="background: ${item.color}"></span>
+                  <span class="legend-label">${item.name}</span>
+                  <span class="legend-value">${formatPercent(item.value)}</span>
+                  <span class="legend-amount">${formatAmount(item.amount)}</span>
+                </li>
+              `
+            )
+            .join("");
+
+          element.innerHTML = `<ul class="legend-stack">${items}</ul>`;
+        };
+
+
+        const initFundHoverCards = () => {
+          const fundDataNode = document.getElementById("fund-cards-data");
+          if (!fundDataNode) {
+            return;
+          }
+
+          let funds = [];
+          try {
+            funds = JSON.parse(fundDataNode.textContent || "[]");
+          } catch {
+            return;
+          }
+
+          if (!Array.isArray(funds) || funds.length === 0) {
+            return;
+          }
+
+          const fundMap = new Map(funds.map((fund) => [fund.full, fund]));
+          const pattern = new RegExp(
+            funds
+              .map((fund) => fund.full.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+              .sort((left, right) => right.length - left.length)
+              .join("|"),
+            "g"
+          );
+
+          const roots = document.querySelectorAll(".hero, .content");
+          for (const root of roots) {
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+              acceptNode(node) {
+                const parent = node.parentElement;
+                if (!parent || !node.textContent.trim()) {
+                  return NodeFilter.FILTER_REJECT;
+                }
+                if (parent.closest(".fund-ref, nav, a, script, style")) {
+                  return NodeFilter.FILTER_REJECT;
+                }
+                pattern.lastIndex = 0;
+                return pattern.test(node.textContent) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+              }
+            });
+
+            const nodes = [];
+            while (walker.nextNode()) {
+              nodes.push(walker.currentNode);
+            }
+
+            for (const node of nodes) {
+              const text = node.textContent;
+              pattern.lastIndex = 0;
+              const fragment = document.createDocumentFragment();
+              let lastIndex = 0;
+              let match;
+
+              while ((match = pattern.exec(text)) !== null) {
+                if (match.index > lastIndex) {
+                  fragment.append(document.createTextNode(text.slice(lastIndex, match.index)));
+                }
+
+                const fund = fundMap.get(match[0]);
+                const wrapper = document.createElement("span");
+                wrapper.className = "fund-ref";
+                wrapper.tabIndex = 0;
+                wrapper.innerHTML = `
+                  <span class="fund-ref-text">${fund.full}</span>
+                  <span class="fund-hover-card" aria-hidden="true">
+                    <span class="fund-hover-name">${fund.name}</span>
+                    <span class="fund-hover-code">代码 ${fund.code}</span>
+                    <span class="fund-hover-grid">
+                      <span class="fund-hover-item"><span class="fund-hover-label">当前金额</span><span class="fund-hover-value">${fund.amount}</span></span>
+                      <span class="fund-hover-item"><span class="fund-hover-label">总资产占比</span><span class="fund-hover-value">${fund.weight}</span></span>
+                      <span class="fund-hover-item"><span class="fund-hover-label">当前建议</span><span class="fund-hover-value">${fund.action}</span></span>
+                    </span>
+                  </span>
+                `;
+                fragment.append(wrapper);
+                lastIndex = match.index + match[0].length;
+              }
+
+              if (lastIndex < text.length) {
+                fragment.append(document.createTextNode(text.slice(lastIndex)));
+              }
+
+              node.parentNode.replaceChild(fragment, node);
+            }
+          }
+        };
+
+        const initChapterCharts = () => {
+          const currentElement = document.getElementById("current-allocation-chart");
+          const targetElement = document.getElementById("target-allocation-chart");
+          const currentLegendElement = document.getElementById("current-allocation-legend");
+          const targetLegendElement = document.getElementById("target-allocation-legend");
+          const currentData = parseJson("current-allocation-data");
+          const targetData = parseJson("target-allocation-data");
+
+          if (!currentElement || !targetElement || !currentLegendElement || !targetLegendElement) {
+            return;
+          }
+
+          renderLegend(currentLegendElement, currentData);
+          renderLegend(targetLegendElement, targetData);
+
+          if (!window.echarts || !currentData || !targetData) {
+            renderFallback(currentElement, "当前结构图未加载。");
+            renderFallback(targetElement, "目标结构图未加载。");
+            return;
+          }
+
+          const charts = [];
+          const categoryColor = "#23313a";
+
+          const initDonut = (element, data) => {
+            const chart = echarts.init(element, null, { renderer: "svg" });
+            chart.setOption({
+              animationDuration: 1000,
+              animationEasing: "cubicOut",
+              title: {
+                text: element.dataset.centerLabel || "",
+                left: "center",
+                top: "34%",
+                textStyle: {
+                  color: categoryColor,
+                  fontSize: 18,
+                  fontWeight: 700,
+                },
+              },
+              tooltip: {
+                trigger: "item",
+                formatter: (params) => {
+                  const amount = formatAmount(params.data.amount);
+                  return amount
+                    ? `${params.name}<br>${formatPercent(params.value)}<br>${amount}`
+                    : `${params.name}<br>${formatPercent(params.value)}`;
+                },
+              },
+              series: [
+                {
+                  type: "pie",
+                  radius: ["48%", "74%"],
+                  center: ["50%", "52%"],
+                  avoidLabelOverlap: true,
+                  label: { show: false },
+                  itemStyle: {
+                    borderColor: "rgba(255, 251, 245, 0.96)",
+                    borderWidth: 3,
+                  },
+                  data: data.map((item) => ({
+                    name: item.name,
+                    value: item.value,
+                    amount: item.amount,
+                    itemStyle: { color: item.color },
+                  })),
+                },
+              ],
+            });
+            charts.push(chart);
+          };
+
+          initDonut(currentElement, currentData);
+          initDonut(targetElement, targetData);
+
+          const resizeCharts = () => {
+            for (const chart of charts) {
+              chart.resize();
+            }
+          };
+
+          window.addEventListener("resize", resizeCharts, { passive: true });
+        };
+
+        const initPage = () => {
+          initFundHoverCards();
+          initChapterCharts();
+        };
+
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", initPage);
+        } else {
+          initPage();
+        }
+      })();
+    </script>
+  </body>
+</html>
