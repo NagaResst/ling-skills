@@ -369,6 +369,7 @@
       .action-summary-card p {
         margin: 0;
         font-size: 14px;
+        grid-column: 2 / -1;
       }
 
       .action-summary-card.priority {
@@ -1920,6 +1921,7 @@
                     <span class="fund-hover-name">${fund.name}</span>
                     <span class="fund-hover-code">代码 ${fund.code}</span>
                     <span class="fund-hover-grid">
+                      <span class="fund-hover-item"><span class="fund-hover-label">最新净值</span><span class="fund-hover-value">${fund.nav}</span></span>
                       <span class="fund-hover-item"><span class="fund-hover-label">当前金额</span><span class="fund-hover-value">${fund.amount}</span></span>
                       <span class="fund-hover-item"><span class="fund-hover-label">总资产占比</span><span class="fund-hover-value">${fund.weight}</span></span>
                       <span class="fund-hover-item"><span class="fund-hover-label">当前建议</span><span class="fund-hover-value">${fund.action}</span></span>
