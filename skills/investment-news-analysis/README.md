@@ -26,7 +26,7 @@
 每日 summary 的唯一模板来源。
 
 2. [reference/prediction-verification.md](reference/prediction-verification.md)
-短期预测与历史预测验证的唯一规则来源。
+信息充分性检查的唯一规则来源。
 
 3. [reference/investment-advice-report-20260517-guide.md](reference/investment-advice-report-20260517-guide.md) + `reference/investment-advice-report-20260517-template.html`
 HTML 建议报告的唯一写法来源与唯一页面骨架。生成 HTML 时必须直接基于模板文件填充，禁止脱离模板另写一套页面结构。
@@ -39,7 +39,7 @@ HTML 建议报告的唯一写法来源与唯一页面骨架。生成 HTML 时必
 4. 读取历史 summary 与最新 `持仓情况.md`
 5. 先跑政策、市场行情与量级、宏观主链路，再按需补基金本身信息
 6. 外部信息写入 `item_summaries/`，脚本输出写入 `raw_data/`
-7. 执行历史预测验证与信息充分性检查
+7. 执行信息充分性检查。
 8. 生成每日 summary
 9. 基于 `reference/investment-advice-report-20260517-template.html` 生成投资建议 HTML 页面
 
