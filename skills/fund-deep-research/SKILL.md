@@ -952,6 +952,23 @@ if len(issues) > 5:  # 允许少量合理空缺
 
 > ⚠️ **不要用子代理（delegate_task）修复JSON**。子代理超时（600s）后工作丢失，需要重做。直接重新运行 `build_json_from_cache.py` + `merge_b_fields.py` 即可自动修复。如果仍有字段缺失，手动补充即可——不要委派给子代理。
 
+#### 🤖 Step 5 子代理派遣自检（按需加载，比硬记规则可靠）
+
+**1. 是否需要子代理？** ≤5 分钟 + 父 agent 不能并发 + 不需落盘 → 用；否则父 agent 自己来。
+
+**2. toolsets 显式审视任务决定（可以多给，不能漏掉）：**
+- 搜索类 → `web, browser, search, x_search`
+- 读写文件/执行命令 → `terminal, file`
+- 知识/记忆 → `session_search, mem0_local_*, skill_view`
+- 代码/视觉 → `coding, computer_use, vision`
+- 派发子任务 → `delegation`
+
+**绝对禁止省略 toolsets 参数**——默认会丢 file/terminal，导致子代理能搜不能写、600s 超时 0 落盘。
+
+**3. 60-90s 监控落盘**：`stat -c %Y <目标文件>`，60-90s 没动就 kill，父 agent 自己上 pdf.dfcfw.com / push2his.eastmoney.com / browser_console。
+
+**4. ❌ 反话**：不要用 delegate_task 修 JSON（L953 已知陷阱）。
+
 ### 前端已知Bug
 
 - **基金公司字段**：`BasicInfo.vue` 原先读 `basic.manager`（经理名）作为基金公司，已修复为读 `company.name ?? basic.company ?? '—'`。确保 `company.name` 有值
