@@ -151,7 +151,7 @@ python skills/fund-deep-research/scripts/parallel_data_collection_v2.py ${CODE}
 - **已知实体时优先走官方源或 API**：例如 gov.cn 政策检索、东财基金搜索 / 基金页、基金公告 API；不要在通用搜索里反复堆轮次。
 - **统一去重规则**：以“标题 + 发布日期”为唯一键；已存在条目跳过，新条目追加到文件末尾。
 - **对话只报结论，不贴原文**：对话中只写“结论：XXX，已写入 `search_log.md`”，不在对话窗口重复铺开原文。
-- **大文件按段读取**：`search_log.md` 可能很大，先用 `grep_search` 定位目标标题或标签，再用 `read_file` 精确读取对应行范围；禁止全量 `read_file`。
+- **大文件按段读取**：`search_log.md` 可能很大，先用 `search_files` 定位目标标题或标签，再用 `read_file` 精确读取对应行范围；禁止全量 `read_file`。
 
 ### 全局原则：报告生成与文件落地（Step 6 及最终输出适用）
 
@@ -550,7 +550,7 @@ read_file /tmp/fund_research_{code}/raw/inflection_points.json
 #### 逐章生成协议（严格按此顺序）
 
 > ❌ **禁止**：跳过下方协议直接写整篇报告。
-> 每章生成后，首次写入使用 `create_file`，后续追加或修订使用当前会话可用的文件编辑工具（如 `apply_patch`）。
+> 每章生成后，首次写入使用 `write_file`，后续追加或修订使用当前会话可用的文件编辑工具（如 `patch`）。
 
 **⚠️ 每章开始前必须执行「预声明-批量读取」协议（防止读取中途发生上下文压缩）：**
 
