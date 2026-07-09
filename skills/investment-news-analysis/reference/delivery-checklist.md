@@ -127,60 +127,7 @@ else:
 4. **正则转义断线检测**：如果转义序列断了，页面肉眼正常但所有 hover 节点注入会静默失败。检查 `.fund-ref` 数量是否大于 0 来确认。
 5. **try/catch 独立**：Chart init 和 hover init 各自独立 `try/catch`，一个失败不能 disable 整个页面。
 
-## 五、HTML 模板填充工作流
-
-**推荐直接在 `execute_code` 中完成全流程，不委托子智能体。**
-
-1. 在 execute_code 中完成所有数据准备：解析 market_momentum JSON、计算持仓金额/占比、构建 fund_cards_json 数组。
-2. 在同一个 execute_code 中直接读取模板文件、做字符串替换、写入输出 HTML。
-3. 替换完成后用正则检查残留占位符。
-4. 执行交付前强制校验。
-
-> ⚠️ **不推荐委托子智能体填充模板**：模板填充本质是文本替换，子智能体耗时长且可能出错（TOC 只填部分、裸代码满篇等）。
-
-## 六、模板扩展（9 → 10+ 只基金）
-
-模板默认 9 个 fund slot（fund-1..fund-8 + fund-n）。持仓增长到 10+ 时，必须先程序化扩展模板再填充。
-
-扩展步骤（9 → 10，11+ 重复）：
-
-1. **CSS**：在 `:nth-child(8)` 和 `:nth-last-child(1)` 之间插入 `:nth-child(N)` 规则
-2. **TOC**：在 `fund-n` 前插入 `<a class="toc-sub" href="#fund-N">{{fund_name_N}}</a>`
-3. **decision-item**：在 `fund-n` 的 `<article>` 前插入完整的 `<article id="fund-N" class="decision-item">` 块
-4. **Summary table**：在 `fund-n` 行前插入新的 `<tr>`
-
-验证：`template.count('class="decision-item"')` 等于目标基金数。
-
-## 七、份额与快照校验
-
-1. **份数 > 0 才入列表**：`持仓情况.md` 中份数为 0 的历史记录不得进入目录、卡片、摘要表或 fund_cards_json。
-2. **份额歧义标注**：若份数字段存在歧义写法（如 `20218.58 - 10109.29`），在报告中显式标注信息边界；未获额外证据前，不能静默按"已减半"改算。
-3. **share_change 分类**：每只基金权重变化时分类为 `increased` / `reduced` / `unchanged`（NAV drift），在 prose 中显式区分。
-4. **权重分母确认**：确认 `holding_weight_pct` 的分母是 holding-only 还是 total-asset。做调仓计算时优先使用 `analysis_snapshot`（含 `full` 和 `holding_weight_pct` 等便利字段）。
-5. **清仓基金处理**：`holdings_change_vs_previous_report.changes[]` 中 `change_type: "cleared"` 的基金不进入活跃持仓列表，但在"持仓变化检测"中写明清仓金额和盈亏。ETF 总览表保留对应行但标注"已清仓"。
-
-## 八、数据降级处理
-
-### 申万二级行业数据缺失
-
-`sw_l2_industry_daily.status` 为 `"empty"` 时：
-
-1. 以 `relevant_etf_daily` 中持仓相关 ETF 涨跌作为板块代理。
-2. 以 `core_industry_etf_daily` 中宽基 ETF 作为市场风格参考。
-3. 日报第四章用"持仓相关行业代理"表替代申万二级行业涨跌幅排行。
-4. 数据附录和 HTML"数据缺口"卡中明确标注。
-5. 申万数据缺失不构成预测阻塞项。
-
-### analysis_snapshot 配套产物检查
-
-1. 先检查当天 `raw_data/` 是否存在 `analysis_snapshot_YYYY-MM-DD.json`。
-2. 若缺失，优先重跑 `fetch_market_momentum.py`。
-3. 若 `share_change_type` 大面积异常（如几乎都变成 `new`），优先检查持仓解析是否兼容当前 HTML 的 `const funds = [...]` 数据结构。
-4. 如果用户要求"同一天重新拉取 raw_data 再更新报告"，不要假设只会改动市场字段。必须重新读取最新持仓和 snapshot。
-5. 如果重拉后 active holdings 集合/数量/主次结构发生变化，就把 summary 和 HTML 视为"整页重生"。
-6. 如果重拉后 `actual_date` 前进了，必须同步删除所有旧的"数据滞后一天"说明。
-
-## 九、交付前校验输出格式
+## 五、交付前校验输出格式
 
 交付前建议用 execute_code 输出以下结构化校验结果：
 

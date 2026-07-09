@@ -114,6 +114,13 @@ python3 skills/investment-news-analysis/scripts/fetch_market_momentum.py --date 
 这是前一天由 `scripts/cn_finance_news.py` 自动运行后把结果落到当天 `raw_data/finance_news.json`。
 注意：不要自己运行cn_finance_news.py做重复的工作，直接使用已有的 JSON 文件！！！
 
+若出现以下异常，再补读 [reference/github-action-news-pipeline.md](reference/github-action-news-pipeline.md)：
+
+- 当天目录无 `finance_news.json`
+- `finance_news.json` 与前一天完全相同
+- 归档日期识别错误导致重复采集
+- GitHub Action 运行失败或 days 计算异常
+
 ## 阶段二：搜索与归档
 
 搜索顺序以 [reference/search-strategy.md](reference/search-strategy.md) 为准。主链路固定为：
@@ -157,6 +164,8 @@ python3 skills/investment-news-analysis/scripts/fetch_market_momentum.py --date 
 5. 生成今日关注要点。
 
 如需逐基金动作细化，写法以日报模板第八章和 HTML 指南第四章为准，不得另起一套字段体系。
+
+若需要输出**预测区间**，或遇到**连续同方向大幅波动 / 单日极端波动 / 申万二级行业数据缺失**，补读 [reference/prediction-intervals-and-data-fallback.md](reference/prediction-intervals-and-data-fallback.md)。
 
 补充：逐基金动作里的 `触发价格线 / 什么时候动作` 默认按持仓成本锚定；如果成本没变，就写"更接近既有止盈线"，不要把止盈线跟着最新净值一起上调。只有成本变化或明确策略重估时，才允许改线。
 
@@ -225,19 +234,17 @@ HTML 规则以 [reference/investment-advice-report-20260517-guide.md](reference/
 
 ### HTML 交付前强制校验
 
-HTML 生成完成后，未通过 [reference/delivery-checklist.md](reference/delivery-checklist.md) 中的全部检查项不得交付。
+HTML 生成完成后，必须执行 [reference/delivery-checklist.md](reference/delivery-checklist.md) 的全部检查项；不得自行删减。
 
-校验清单包含九大检查类别（逐项执行，不可跳过）：
+**交付门槛只有三条硬判定：**
 
-1. **持仓集合一致性**：目录/卡片/摘要表/fund_cards_json/summary 五处基金名称集合完全一致
-2. **裸代码零容忍**：用 execute_code 运行脚本扫描全部交付物（summary + item_summaries + HTML），违规数 = 0
-3. **HTML 结构校验**：占位符残留 = 0（`{{}}` 和 `{}` 两种）、模板来源正确、h3 标题格式正确
-4. **悬浮卡片校验**：hover 不侵入标题、DOM 节点已生成、正则转义未断线、try/catch 独立
-5. **HTML 模板填充工作流**：推荐 execute_code 直接完成，不委托子智能体
-6. **模板扩展（9 → 10+）**：CSS/TOC/decision-item/summary table 四步程序化扩展
-7. **份额与快照校验**：份数 > 0 才入列表、份额歧义标注、share_change 分类、权重分母确认、清仓基金处理
-8. **数据降级处理**：申万数据缺失时用 ETF 代理、analysis_snapshot 配套产物检查
-9. **校验输出格式**：结构化输出 all_name_sets_match / bare_code_violations / placeholder_residual
+1. `all_name_sets_match == true`
+2. `bare_code_violations == 0`
+3. `placeholder_residual == 0`
+
+任一条件不满足，都不得宣布交付。
+
+HTML 的生成方法、模板扩展、hover 卡片处理等实现细节，统一见 [reference/html-generation-workflow.md](reference/html-generation-workflow.md)。
 
 ## 最低交付线
 
@@ -257,7 +264,8 @@ HTML 生成完成后，未通过 [reference/delivery-checklist.md](reference/del
 
 ## 参考文档
 
-- [reference/delivery-checklist.md](reference/delivery-checklist.md) - **交付前自检查清单（九大检查类别）**
+- [reference/delivery-checklist.md](reference/delivery-checklist.md) - **交付前自检查清单（仅交付检查）**
+- [reference/html-generation-workflow.md](reference/html-generation-workflow.md) - HTML 生成、模板扩展、hover 卡片与 `fund_cards_json` 工作流
 - [reference/archiving.md](reference/archiving.md) - 归档与单条摘要规则
 - [reference/daily-summary-template.md](reference/daily-summary-template.md) - 日报模板
 - [reference/historical-data.md](reference/historical-data.md) - 历史读取规范
@@ -286,6 +294,6 @@ HTML 生成完成后，未通过 [reference/delivery-checklist.md](reference/del
 
 ---
 
-**版本**：v5.0  
+**版本**：v5.1  
 **最后更新**：2026-07-09  
 **维护者**：NagaResst
