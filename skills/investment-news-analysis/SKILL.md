@@ -241,7 +241,78 @@ HTML 生成完成后，未通过以下校验不得交付：
 8. **第四章每个 decision-item 的 `<h3>` 标题必须包含完整"基金名称(代码)"**（如 `<h3>财通新视野灵活配置混合A(005851)</h3>`），不能只写名称把代码拆到 code-badge 中。悬浮卡片脚本通过匹配文本节点中的完整"基金全名(代码)"来注入卡片，h3 拆开写会导致匹配失败，视为交付失败。
 9. 若第二章到第六章读起来仍像上一日 summary 的续写版，视为交付失败；必须回到当日 summary 和 item_summaries 重新展开当天新增内容。
 10. 若页面骨架、章节结构、悬浮卡片注入方式明显不是 `reference/investment-advice-report-20260517-template.html` 这一套，视为交付失败；必须回到模板文件重新生成。
-11. **summary 和 HTML 正文中不得只用基金代码代指基金**：正文提及基金时必须写成"基金名称(代码)"全称格式，禁止只写代码（如"014194"）、只写简称（如"财通新视野"）、或把代码写在名称前面。摘要表第一列、目录子链接、卡片标题同理。违反此条视为交付失败。
+11. **裸代码零容忍**：所有交付物（summary、item_summaries、HTML）正文中提及基金时必须写成"基金名称(代码)"全称格式，禁止只写代码、只写简称、或把代码写在名称前面。违反此条视为交付失败。
+
+### 裸代码强制扫描（交付前必须执行）
+
+上述第11条的校验方法。**不可仅靠肉眼检查**，必须用 execute_code 运行以下脚本，扫描全部交付物：
+
+```python
+import re, os
+
+# 1. 从持仓情况.md 提取基金代码列表
+with open("投资者行动/持仓情况.md") as f:
+    holdings_text = f.read()
+codes = re.findall(r'代码:\s*(\d{6})', holdings_text)
+
+# 2. 定义扫描函数
+def scan_file(filepath, codes, is_html=False):
+    with open(filepath) as f:
+        text = f.read()
+    violations = []
+    for code in codes:
+        for m in re.finditer(re.escape(code), text):
+            pos = m.start()
+            # 豁免1: 在 "名称(代码)" 格式中（前一个是"("，后一个是")"）
+            if pos > 0 and text[pos-1] == '(' and text[pos+len(code):pos+len(code)+1] == ')':
+                continue
+            # 豁免2: HTML 专属（code-badge / href / JSON code 字段）
+            if is_html:
+                before = text[max(0, pos-80):pos]
+                if 'code-badge' in before[-60:] or 'href="#fund-' in before[-30:] or '"code"' in before[-40:]:
+                    continue
+            # 豁免3: 反引号内（文件路径）
+            if text[:pos].count('`') % 2 == 1:
+                continue
+            violations.append((code, pos, text[max(0,pos-50):pos+len(code)+50]))
+    return violations
+
+# 3. 扫描全部交付物
+date = "2026-07-09"  # 替换为当日日期
+files = [
+    (f"投资新闻归档/2026-07/{date}/summary_{date}.md", False),
+    (f"投资者行动/持仓分析与建议/投资建议报告_{date.replace('-','')}.html", True),
+]
+# 加上 item_summaries
+item_dir = f"投资新闻归档/2026-07/{date}/item_summaries"
+if os.path.isdir(item_dir):
+    for fname in sorted(os.listdir(item_dir)):
+        if fname.endswith('.md'):
+            files.append((os.path.join(item_dir, fname), False))
+
+# 4. 输出结果
+total = 0
+for filepath, is_html in files:
+    v = scan_file(filepath, codes, is_html)
+    if v:
+        print(f"\n❌ {filepath}: {len(v)} violations")
+        for code, pos, ctx in v:
+            print(f"  {code}: ...{ctx}...")
+        total += len(v)
+    else:
+        print(f"✅ {filepath}: clean")
+
+print(f"\n{'='*40}")
+print(f"Total violations: {total}")
+if total > 0:
+    print("⛔ 禁止交付，必须逐处替换为'基金名称(代码)'全称后重新扫描")
+else:
+    print("✅ 全部通过，可交付")
+```
+
+**裸代码高发区**（生成时预防）：持仓变化检测、复盘与风险雷达、今日关注要点、关联持仓字段、HTML hero/boundary/review/watchlist/policy/ETF table、斜杠分隔多代码（如"019943/009520/005216"）。
+
+**书写预防**：首次出现写"基金名称(代码)"全称，同段后续可用"本基金"指代，禁止用裸代码做缩写。
 
 ## 最低交付线
 
@@ -257,6 +328,7 @@ HTML 生成完成后，未通过以下校验不得交付：
 1. 完整 8 持仓日报默认不少于 8 条单条归档。
 2. 普通完整日报默认不少于 6 条单条归档。
 3. raw_data 中必须存在可回溯单条归档的结构化 JSON。
+4. **全部交付物通过裸代码扫描**（违规数 = 0）。
 
 ## 参考文档
 
@@ -282,9 +354,10 @@ HTML 生成完成后，未通过以下校验不得交付：
 7. 执行信息充分性检查。
 8. 生成每日 summary。
 9. 生成投资建议 HTML 页面。
+10. **执行全交付物裸代码扫描**（summary + item_summaries + HTML），违规数 = 0 方可交付。
 
 ---
 
-**版本**：v4.3  
-**最后更新**：2026-06-10  
+**版本**：v4.4  
+**最后更新**：2026-07-09  
 **维护者**：NagaResst
