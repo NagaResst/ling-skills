@@ -269,7 +269,6 @@ HTML 生成完成后，未通过 [reference/delivery-checklist.md](reference/del
 - [reference/directory-structure.md](reference/directory-structure.md) - 目录结构
 - [reference/investment-advice-report-20260517-guide.md](reference/investment-advice-report-20260517-guide.md) - HTML 说明
 - [reference/investment-advice-report-20260517-template.html](reference/investment-advice-report-20260517-template.html) - HTML 模板文件
-- [reference/market-momentum-data-structure.md](reference/market-momentum-data-structure.md) - market_momentum JSON 字段名备忘
 - [reference/github-action-news-pipeline.md](reference/github-action-news-pipeline.md) - GitHub Action 新闻采集流水线
 
 ## 日常操作顺序
