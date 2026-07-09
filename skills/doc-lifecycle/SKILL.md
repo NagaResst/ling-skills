@@ -308,7 +308,8 @@ Phase 4 过程中可以根据用户反馈多次停顿：
 │   ├── cross-validation-rules.md         # Phase 2b 完整规则
 │   ├── scorecard-rubric.md               # Phase 3 5 维评分细则
 │   ├── version-rewrite-patterns.md       # Phase 4 11 类残留模式
-│   └── anti-extrap-protocol.md           # 通用教训（防外推）
+│   ├── anti-extrap-protocol.md           # 通用教训（防外推）
+│   ├── cross-doc-alignment-and-db-validation.md  # 跨文档概念对齐与DB设计交叉验证
 └── scripts/
     ├── check_doc_header.py               # 校验 8 字段头部
     ├── check_doc_naming.py               # 校验命名规范
