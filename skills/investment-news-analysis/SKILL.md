@@ -169,17 +169,13 @@ python3 skills/investment-news-analysis/scripts/fetch_market_momentum.py --date 
 1. **基金净值**：字段是 `official_nav`，不是 `nav`。`fund_official_navs[]` 每个元素含 `code`、`name`、`official_nav`、`nav_date`。
 2. **申万二级行业**：数据嵌套在 `sw_l2_industry_daily.industries[]`，不是 `sw_l2_industry_daily` 直接是数组。行业名字段是 `index_name`，不是 `industry_name`。可用字段：`index_code`、`index_name`、`date`、`change_pct`、`pe_ttm`、`pb`、`dividend_yield_pct`、`circulating_market_cap_yi` 等。
 3. **北向资金**：`northbound_weekly_summary.daily_net_flow[].net_deal_amt_raw` 单位是万元，需除以 100 换算为亿元。`total_net_in_yi_if_raw_unit_is_million` 字段名虽含 "million" 但实际已换算为亿元。
+4. **ETF 数据分两组**：`relevant_etf_daily` 和 `core_industry_etf_daily`，不是 `etf_daily`（该字段为空字典）。
+5. **analysis_snapshot vs holding_valuation_snapshot**：做调仓计算时优先使用 `analysis_snapshot`，因为它有 `full` 和 `holding_weight_pct` 等便利字段。
+6. **持仓文件解析**：`fetch_market_momentum.py` 要求持仓文件为扁平 `key: value` 格式。购入时间嵌套格式会导致解析器静默截断。始终显式传入 `--holdings-file`。
 
 ### 网络搜索补充的可靠性
 
 用 delegate_task 子智能体搜索 A 股行情时，返回的涨跌方向和幅度可能与脚本实际数据严重矛盾（例如子智能体声称"三大指数收跌"，实际是大反弹日）。**脚本抓取的 market_momentum 数据为唯一可信基准**，子智能体网络搜索结果只能用于补充新闻叙事和政策信息，不得用于替代或覆盖脚本数据。
-
-### HTML 报告生成工作流
-
-生成 HTML 报告时推荐两步法：
-
-1. **先在 execute_code 中完成所有数据准备**：解析 market_momentum JSON、计算持仓金额/占比、构建 fund_cards_json 数组、整理每只基金的决策卡片数据。这一步确保数据在主智能体上下文中经过验证。
-2. **再委托子智能体填充模板**：把完整的模板路径、所有基金数据、ETF 数据、章节内容打包传给 delegate_task，让子智能体读取模板并写入 HTML。这样避免子智能体自行解析数据时出错。
 
 ### macOS 路径与 TCC 权限
 
@@ -229,90 +225,19 @@ HTML 规则以 [reference/investment-advice-report-20260517-guide.md](reference/
 
 ### HTML 交付前强制校验
 
-HTML 生成完成后，未通过以下校验不得交付：
+HTML 生成完成后，未通过 [reference/delivery-checklist.md](reference/delivery-checklist.md) 中的全部检查项不得交付。
 
-1. `持仓情况.md` 中每一只当前持仓基金，都在目录、第四章和第七章各出现且只出现一次。
-2. 第四章基金卡片数必须等于当前持仓数，禁止少卡、并卡、漏卡。
-3. 第七章摘要表基金行数必须等于当前持仓数，禁止沿用上一版摘要表。
-4. 若启用模板悬浮卡片，fund_cards_json 条数必须等于当前持仓数，且 `full` 字段必须与持仓文件中的"基金名称(代码)"完全一致，`nav` 字段必须包含最新净值及日期（格式如 `"1.2345 06-30"`）。
-5. `当前持仓数` 的口径必须按 `投资者行动/持仓情况.md` 中 **份数 > 0** 的基金计算；份数为 0 的历史记录（如已清仓但仍留在持仓文件里的基金）不得进入目录、第四章卡片、第七章摘要表或 `fund_cards_json`。
-6. 交付前不要只看“数量相等”；还必须逐一校验 **目录子链接 / 第四章卡片标题 / 第七章摘要表第一列 / fund_cards_json.full** 四处使用的是同一份基金全名集合，且都无重复。
-7. 若任何一项数量或名称对不上，优先修正 HTML 和数据映射，不得带着缺口继续输出结论。
-8. **第四章每个 decision-item 的 `<h3>` 标题必须包含完整"基金名称(代码)"**（如 `<h3>财通新视野灵活配置混合A(005851)</h3>`），不能只写名称把代码拆到 code-badge 中。悬浮卡片脚本通过匹配文本节点中的完整"基金全名(代码)"来注入卡片，h3 拆开写会导致匹配失败，视为交付失败。
-9. 若第二章到第六章读起来仍像上一日 summary 的续写版，视为交付失败；必须回到当日 summary 和 item_summaries 重新展开当天新增内容。
-10. 若页面骨架、章节结构、悬浮卡片注入方式明显不是 `reference/investment-advice-report-20260517-template.html` 这一套，视为交付失败；必须回到模板文件重新生成。
-11. **裸代码零容忍**：所有交付物（summary、item_summaries、HTML）正文中提及基金时必须写成"基金名称(代码)"全称格式，禁止只写代码、只写简称、或把代码写在名称前面。违反此条视为交付失败。
+校验清单包含九大检查类别（逐项执行，不可跳过）：
 
-### 裸代码强制扫描（交付前必须执行）
-
-上述第11条的校验方法。**不可仅靠肉眼检查**，必须用 execute_code 运行以下脚本，扫描全部交付物：
-
-```python
-import re, os
-
-# 1. 从持仓情况.md 提取基金代码列表
-with open("投资者行动/持仓情况.md") as f:
-    holdings_text = f.read()
-codes = re.findall(r'代码:\s*(\d{6})', holdings_text)
-
-# 2. 定义扫描函数
-def scan_file(filepath, codes, is_html=False):
-    with open(filepath) as f:
-        text = f.read()
-    violations = []
-    for code in codes:
-        for m in re.finditer(re.escape(code), text):
-            pos = m.start()
-            # 豁免1: 在 "名称(代码)" 格式中（前一个是"("，后一个是")"）
-            if pos > 0 and text[pos-1] == '(' and text[pos+len(code):pos+len(code)+1] == ')':
-                continue
-            # 豁免2: HTML 专属（code-badge / href / JSON code 字段）
-            if is_html:
-                before = text[max(0, pos-80):pos]
-                if 'code-badge' in before[-60:] or 'href="#fund-' in before[-30:] or '"code"' in before[-40:]:
-                    continue
-            # 豁免3: 反引号内（文件路径）
-            if text[:pos].count('`') % 2 == 1:
-                continue
-            violations.append((code, pos, text[max(0,pos-50):pos+len(code)+50]))
-    return violations
-
-# 3. 扫描全部交付物
-date = "2026-07-09"  # 替换为当日日期
-files = [
-    (f"投资新闻归档/2026-07/{date}/summary_{date}.md", False),
-    (f"投资者行动/持仓分析与建议/投资建议报告_{date.replace('-','')}.html", True),
-]
-# 加上 item_summaries
-item_dir = f"投资新闻归档/2026-07/{date}/item_summaries"
-if os.path.isdir(item_dir):
-    for fname in sorted(os.listdir(item_dir)):
-        if fname.endswith('.md'):
-            files.append((os.path.join(item_dir, fname), False))
-
-# 4. 输出结果
-total = 0
-for filepath, is_html in files:
-    v = scan_file(filepath, codes, is_html)
-    if v:
-        print(f"\n❌ {filepath}: {len(v)} violations")
-        for code, pos, ctx in v:
-            print(f"  {code}: ...{ctx}...")
-        total += len(v)
-    else:
-        print(f"✅ {filepath}: clean")
-
-print(f"\n{'='*40}")
-print(f"Total violations: {total}")
-if total > 0:
-    print("⛔ 禁止交付，必须逐处替换为'基金名称(代码)'全称后重新扫描")
-else:
-    print("✅ 全部通过，可交付")
-```
-
-**裸代码高发区**（生成时预防）：持仓变化检测、复盘与风险雷达、今日关注要点、关联持仓字段、HTML hero/boundary/review/watchlist/policy/ETF table、斜杠分隔多代码（如"019943/009520/005216"）。
-
-**书写预防**：首次出现写"基金名称(代码)"全称，同段后续可用"本基金"指代，禁止用裸代码做缩写。
+1. **持仓集合一致性**：目录/卡片/摘要表/fund_cards_json/summary 五处基金名称集合完全一致
+2. **裸代码零容忍**：用 execute_code 运行脚本扫描全部交付物（summary + item_summaries + HTML），违规数 = 0
+3. **HTML 结构校验**：占位符残留 = 0（`{{}}` 和 `{}` 两种）、模板来源正确、h3 标题格式正确
+4. **悬浮卡片校验**：hover 不侵入标题、DOM 节点已生成、正则转义未断线、try/catch 独立
+5. **HTML 模板填充工作流**：推荐 execute_code 直接完成，不委托子智能体
+6. **模板扩展（9 → 10+）**：CSS/TOC/decision-item/summary table 四步程序化扩展
+7. **份额与快照校验**：份数 > 0 才入列表、份额歧义标注、share_change 分类、权重分母确认、清仓基金处理
+8. **数据降级处理**：申万数据缺失时用 ETF 代理、analysis_snapshot 配套产物检查
+9. **校验输出格式**：结构化输出 all_name_sets_match / bare_code_violations / placeholder_residual
 
 ## 最低交付线
 
@@ -332,16 +257,20 @@ else:
 
 ## 参考文档
 
+- [reference/delivery-checklist.md](reference/delivery-checklist.md) - **交付前自检查清单（九大检查类别）**
 - [reference/archiving.md](reference/archiving.md) - 归档与单条摘要规则
 - [reference/daily-summary-template.md](reference/daily-summary-template.md) - 日报模板
 - [reference/historical-data.md](reference/historical-data.md) - 历史读取规范
 - [reference/prediction-verification.md](reference/prediction-verification.md) - 信息充分性检查规范
+- [reference/prediction-intervals-and-data-fallback.md](reference/prediction-intervals-and-data-fallback.md) - 预测区间宽度调整与数据降级
 - [reference/search-strategy.md](reference/search-strategy.md) - 搜索层次与范围
 - [reference/position-management.md](reference/position-management.md) - 组合内逐基金状态整合
 - [reference/nav-analysis.md](reference/nav-analysis.md) - 净值分析与触发线辅助方法
 - [reference/directory-structure.md](reference/directory-structure.md) - 目录结构
 - [reference/investment-advice-report-20260517-guide.md](reference/investment-advice-report-20260517-guide.md) - HTML 说明
+- [reference/investment-advice-report-20260517-template.html](reference/investment-advice-report-20260517-template.html) - HTML 模板文件
 - [reference/market-momentum-data-structure.md](reference/market-momentum-data-structure.md) - market_momentum JSON 字段名备忘
+- [reference/github-action-news-pipeline.md](reference/github-action-news-pipeline.md) - GitHub Action 新闻采集流水线
 
 ## 日常操作顺序
 
@@ -354,10 +283,10 @@ else:
 7. 执行信息充分性检查。
 8. 生成每日 summary。
 9. 生成投资建议 HTML 页面。
-10. **执行全交付物裸代码扫描**（summary + item_summaries + HTML），违规数 = 0 方可交付。
+10. **执行 [delivery-checklist.md](reference/delivery-checklist.md) 全部检查项**，违规数 = 0 方可交付。
 
 ---
 
-**版本**：v4.4  
+**版本**：v5.0  
 **最后更新**：2026-07-09  
 **维护者**：NagaResst
