@@ -226,7 +226,7 @@ HTML 规则以 [reference/investment-advice-report-20260517-guide.md](reference/
 6. 基金名单只能来自 `投资者行动/持仓情况.md`，不得靠正文手写回忆补全。
 7. 交付前必须逐一对账：目录子链接数、第四章基金卡片数、第七章摘要表行数，三者都必须与当前持仓基金数量一致。
 8. 交付前必须逐一对账基金名称：目录、第四章卡片标题、第七章摘要表第一列，必须全部使用与持仓文件一致的"基金名称(代码)"全称。
-9. 必须使用 `investment-advice-report-20260517-template.html`，并填充 `fund_cards_json`，让正文基金名称自动挂载悬浮卡片；悬浮卡片最少包含净值、总金额、占比三项。
+9. 必须使用 `investment-advice-report-20260517-template.html`，并填充 `fund_cards_json`，让正文基金名称自动挂载悬浮卡片；悬浮卡片最少包含净值、总金额、占比三项。交付判断以页面中可见正文基金名称实际能触发悬浮卡片为准，不能只因源码里存在脚本、class 或 `fund_cards_json` 就视为完成。
 10. HTML 不是上一日页面的改写版；第二章到第六章必须显式体现当日新增事实，而不是只复述上一日结论。
 11. 当数据基准日与上一日报告相同，HTML 必须明确分开写"今天沿用的静态数据"与"今天新增的新闻 / 风险 / 反向证据"，不得混写成连续叙事。
 12. 第二章必须落出当日新增 `item_summaries` 的主要锚点；第五章必须写清"今日新增验证样本数"，禁止沿用上一日验证口径冒充今日结果。
@@ -236,11 +236,12 @@ HTML 规则以 [reference/investment-advice-report-20260517-guide.md](reference/
 
 HTML 生成完成后，必须执行 [reference/delivery-checklist.md](reference/delivery-checklist.md) 的全部检查项；不得自行删减。
 
-**交付门槛只有三条硬判定：**
+**交付门槛只有四条硬判定：**
 
 1. `all_name_sets_match == true`
 2. `bare_code_violations == 0`
 3. `placeholder_residual == 0`
+4. 悬浮卡片若在模板中启用，则正文中至少存在可实际触发的基金悬浮卡片，不能只剩静态文本。
 
 任一条件不满足，都不得宣布交付。
 
