@@ -163,9 +163,7 @@ python3 skills/investment-news-analysis/scripts/fetch_market_momentum.py --date 
 4. 给出逐基金状态复核与操作建议。
 5. 生成今日关注要点。
 
-如需逐基金动作细化，写法以日报模板第八章和 HTML 指南第四章为准，不得另起一套字段体系。
-
-若需要输出**预测区间**，或遇到**连续同方向大幅波动 / 单日极端波动 / 申万二级行业数据缺失**，补读 [reference/prediction-intervals-and-data-fallback.md](reference/prediction-intervals-and-data-fallback.md)。
+如需逐基金动作细化，写法以日报模板第八章和 HTML 指南第四章为准，不得另起一套字段体系。日报章节以模板定义的八章为准，不得自行新增。
 
 补充：逐基金动作里的 `触发价格线 / 什么时候动作` 默认按持仓成本锚定；如果成本没变，就写"更接近既有止盈线"，不要把止盈线跟着最新净值一起上调。只有成本变化或明确策略重估时，才允许改线。
 
@@ -271,7 +269,6 @@ HTML 的生成方法、模板扩展、hover 卡片处理等实现细节，统一
 - [reference/daily-summary-template.md](reference/daily-summary-template.md) - 日报模板
 - [reference/historical-data.md](reference/historical-data.md) - 历史读取规范
 - [reference/prediction-verification.md](reference/prediction-verification.md) - 信息充分性检查规范
-- [reference/prediction-intervals-and-data-fallback.md](reference/prediction-intervals-and-data-fallback.md) - 预测区间宽度调整与数据降级
 - [reference/search-strategy.md](reference/search-strategy.md) - 搜索层次与范围
 - [reference/position-management.md](reference/position-management.md) - 组合内逐基金状态整合
 - [reference/nav-analysis.md](reference/nav-analysis.md) - 净值分析与触发线辅助方法
