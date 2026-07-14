@@ -1,16 +1,16 @@
 ---
 name: four-phase-coding-workflow
-description: 4 阶段校正工作流（阶段 1 校验实施文档 → 阶段 2 编码 → 阶段 3 再校验 → 阶段 4 父 agent 反查总结）。用于“以上游文档为依据，先校正实施文档，再按校正后的实施文档修改代码”的高审计任务。职责是忠实执行设计而非自由发挥；发现冲突时优先反馈。base doc 启动前确认；阶段间严格串行；阶段 4 不信任子 agent 报告，必须亲自反查。
-when_to_use: 当任务要求“以上游文档/设计文档为依据，先校正实施文档，再按校正后的实施文档修改代码”，且目标是忠实执行设计而非自由发挥，并要求阶段化验证、子 agent 编排、最终父 agent 反查时使用。
-version: 1.2.0
+description: 4 阶段校正工作流（阶段 1 校验实施文档 → 阶段 2 编码 → 阶段 3 再校验 → 阶段 4 父 agent 反查总结）。用于“以上游文档为依据，先校正实施文档，再按校正后的实施文档修改代码”的高审计任务。职责是忠实执行设计而非自由发挥；发现冲突时优先反馈。融合 Ponytail lazy-senior-dev 理念：阶段 1 审查文档过度设计，阶段 2 文档未指定时走最简路径，阶段 3 叠加 over-engineering 检查。base doc 启动前确认；阶段间严格串行；阶段 4 不信任子 agent 报告，必须亲自反查。
+when_to_use: 当任务要求“以上游文档/设计文档为依据，先校正实施文档，再按校正后的实施文档修改代码”，且目标是忠实执行设计而非自由发挥，并要求阶段化验证、子 agent 编排、最终父 agent 反查时使用。也适用于需要在文档阶段就识别过度设计、并在编码时选择最简实现路径的场景。
+version: 1.3.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
 effort: high
 metadata:
   hermes:
-    tags: [coding, four-phase, doc-coding, anti-hallucination, parallel-then-serial]
-    related_skills: [parallel-task-decomposition, hermes-agent]
+    tags: [coding, four-phase, doc-coding, anti-hallucination, parallel-then-serial, ponytail]
+    related_skills: [parallel-task-decomposition, hermes-agent, ponytail]
 ---
 
 # 4 阶段校正工作流
@@ -25,6 +25,19 @@ metadata:
 4. 最后由父 agent **亲自反查** 阶段 3 的报告，并只给真实结论与修复建议
 
 它不是用来发挥创意、优化架构或顺手重构的。它的职责是：**忠实执行设计；发现问题时尽早反馈；在任何不确定处优先停下并报告，而不是自由发挥。**
+
+### Ponytail 融合定位
+
+本 workflow 融合了 [Ponytail](https://github.com/DietrichGebert/ponytail) 的 lazy-senior-dev 理念（"最好的代码是你不写的代码"），但并非无条件应用——Ponytail 在各阶段的角色如下：
+
+> 内嵌规则基于 Ponytail v4.8.4，上游更新后需手动同步。
+
+| 阶段 | Ponytail 角色 | 优先级 |
+|---|---|---|
+| 阶段 1 | **审查文档自身是否过度设计**——指定的抽象是否只有一个实现？指定的库是否能用 stdlib 替代？指定的 boilerplate 是否必要？ | 与一致性审查并列，over-engineering finding 同等级输出 |
+| 阶段 2 | **文档未指定的实现细节走 Ponytail 阶梯**（stdlib first, shortest diff） | 文档指定了具体实现→按文档；文档未指定→走阶梯 |
+| 阶段 3 | 叠加 over-engineering 检查：代码是否引入了文档没要求的额外复杂度？ | 与一致性校验并行 |
+| 阶段 4 | 反查 over-engineering finding 是否属实 | 同等反查 |
 
 ## 适用场景
 
@@ -63,6 +76,7 @@ metadata:
 4. **反幻觉门**：阶段 3 报告“代码有问题”时，阶段 4 必须亲自 `grep` / `read_file` / `git log` / 终端反查，确认属实后才给修复建议。
 5. **实施文档硬约束必须传播**：阶段 1 得出的“实施文档应该改成什么”，必须显式传给阶段 2 编码子 agent。
 6. **先反馈再修复**：除非用户明确批准，阶段 4 只给结论和建议，不直接修代码。
+7. **Over-engineering finding 必须经过用户决策**：阶段 1 发现文档过度设计时，`requires_user_decision` 必须为 `yes`——简化文档设计是改变设计意图，不能由 agent 自行决定。用户确认后才合并到校正后文档。
 
 ## 父 agent 角色边界
 
@@ -179,15 +193,16 @@ metadata:
 - `existence_misclassification` — “新建”与“扩展”判断错误
 - `test_gap` — 测试覆盖缺口
 - `error_handling_drift` — 错误处理形式偏离
+- `over_engineering` — 文档自身过度设计：不必要的抽象层（只有一个实现的接口）、可用 stdlib 替代的指定库、不必要的 boilerplate、speculative 配置或工厂模式
 
 ## 四阶段快速对照
 
-| 阶段 | 任务 | 子 agent 模式 | 父 agent 职责 |
-|---|---|---|---|
-| 1 | 校验实施文档 | 按 base doc 或维度拆分；必要时单子 agent 全量串行 | 确认真理源、回收 finding、决策评审门 |
-| 2 | 编码 | 同文件必串；独立文件可并行 | 传递校正结果与硬约束、验证 commit 真实性 |
-| 3 | 再校验 | 只读，可并行 | 收集 verification item，不写代码 |
-| 4 | 总结 + 反查 | 父 agent 亲自执行 | 按证明句柄反查、输出真实结论与修复建议 |
+| 阶段 | 任务 | 子 agent 模式 | 父 agent 职责 | Ponytail 角色 |
+|---|---|---|---|---|
+| 1 | 校验实施文档 | 按 base doc 或维度拆分；必要时单子 agent 全量串行 | 确认真理源、回收 finding、决策评审门 | 审查文档自身过度设计（`over_engineering` finding） |
+| 2 | 编码 | 同文件必串；独立文件可并行 | 传递校正结果与硬约束、验证 commit 真实性 | 文档未指定的实现细节走 Ponytail 阶梯 |
+| 3 | 再校验 | 只读，可并行 | 收集 verification item，不写代码 | 叠加 over-engineering 检查 |
+| 4 | 总结 + 反查 | 父 agent 亲自执行 | 按证明句柄反查、输出真实结论与修复建议 | 反查 over-engineering finding 是否属实 |
 
 ## 阶段 1：校验实施文档
 
@@ -205,6 +220,8 @@ metadata:
 
 ### 1.2 阶段 1 输出 schema
 
+一致性 finding：
+
 ```markdown
 ## Phase 1 Finding
 - finding_id:
@@ -219,6 +236,28 @@ metadata:
 - proof_handle:
 ```
 
+Over-engineering finding（文档自身过度设计）：
+
+```markdown
+## Phase 1 Finding — Over-engineering
+- finding_id:
+- severity: high|medium|low
+- target_doc:
+- target_section:
+- over_eng_type: yagni | stdlib | native | shrink | delete
+- claim: （文档要求了什么不必要的复杂度）
+- simpler_alternative: （更简方案）
+- requires_user_decision: yes  # 必须为 yes
+- proof_handle:
+```
+
+`over_eng_type` 含义：
+- `yagni` — 不必要的抽象层（只有一个实现的接口、工厂模式等）
+- `stdlib` — 指定外部库但 stdlib 已能覆盖
+- `native` — 指定代码实现但平台原生功能已覆盖
+- `shrink` — 同等逻辑可用更少代码完成
+- `delete` — speculative 配置 / boilerplate / dead flexibility
+
 ### 1.3 阶段 1 子 agent 模板
 
 完整模板见：`references/phase-1-validator-template.md`
@@ -227,8 +266,9 @@ metadata:
 
 父 agent 负责：
 - 等待所有子 agent 完成
-- 汇总 finding
+- 汇总 finding（含一致性 finding 和 over-engineering finding）
 - 对互斥建议进入决策评审门
+- over-engineering finding 必须经过用户确认后才合并到校正后文档
 - 产出“实施文档改动清单”，供阶段 2 使用
 
 ## 阶段 2：编码
@@ -240,6 +280,16 @@ metadata:
 - 校正后的实施文档版本 / 结论
 - 阶段 1 的 `finding_id` 与硬约束
 - 任务边界（哪些文件能改，哪些不能改）
+- **Ponytail 阶梯指引**：文档未指定具体实现时，按以下优先级选择实现路径：
+  1. 这个实现需要存在吗？（YAGNI）
+  2. 已有 codebase 里有现成的吗？
+  3. stdlib 能做吗？
+  4. 平台原生功能覆盖吗？
+  5. 已安装依赖能解决吗？
+  6. 能一行搞定吗？
+  7. 都不行才写最小代码
+  - 文档指定了 API 形式/库/抽象层 → 严格按文档，不走阶梯
+  - 刻意简化但已知有上限 → 标 `ponytail:` 注释说明上限和升级路径
 
 ### 2.2 阶段 2 输出 schema
 
@@ -252,6 +302,7 @@ metadata:
 - tests_run:
 - constraints_applied:
 - deviations_from_corrected_doc:
+- ponytail_shortcuts: （本次编码中标 `ponytail:` 的简化决策列表，如无则 none）
 - unresolved_risks:
 - proof_handle:
 ```
@@ -265,6 +316,7 @@ metadata:
 父 agent 负责：
 - 验证 commit 真实存在
 - 验证关键文件确实被改动
+- 收集 `ponytail_shortcuts`（如有），传递给阶段 3 供 over-engineering 检查和 shortcut 审计
 - 整理“代码改动清单”供阶段 3 使用
 
 ## 阶段 3：再校验
@@ -276,6 +328,7 @@ metadata:
 - 对应文件
 - base doc 相关章节
 - 校正后的实施文档相关章节
+- 阶段 2 的 `ponytail_shortcuts` 列表（如有，供 over-engineering 检查和 shortcut 审计）
 
 ### 3.2 阶段 3 输出 schema
 
@@ -288,6 +341,20 @@ metadata:
 - claim:
 - verdict: pass|fail|partial|uncertain
 - repair_needed: yes|no
+- proof_handle:
+```
+
+Over-engineering verification item：
+
+```markdown
+## Phase 3 Verification Item — Over-engineering
+- verification_id:
+- related_commit_hash:
+- file:
+- over_eng_tag: delete | stdlib | native | yagni | shrink
+- claim: （代码引入了什么文档没要求的复杂度）
+- simpler_form: （更简形式）
+- verdict: pass | fail
 - proof_handle:
 ```
 
@@ -307,6 +374,8 @@ metadata:
 - 阶段 3 的 `verification_id` + claim + proof_handle
 - 阶段 2 的 commit hash
 - base doc + 实施文档相关章节
+- 阶段 1 的 over-engineering findings（如有）
+- 阶段 2 的 `ponytail_shortcuts`（如有）
 
 ### 4.2 阶段 4 核心动作
 
@@ -316,11 +385,32 @@ metadata:
 - 它说的代码片段真的在那行吗？
 - 它说的文档条款真的是那个意思吗？
 
+**Ponytail 反查（条件性 — 仅当阶段 1/2/3 产出 Ponytail 相关 finding 时触发）：**
+- Over-engineering finding：阶段 1 报告的 `over_eng_type` 分类是否属实？建议的 simpler_alternative 是否可行？
+- 安全护栏违反：阶段 3 报告安全护栏违反时，grep commit diff 确认验证是否真的被移除
+- `ponytail:` shortcut 审计：每个注释是否包含上限和升级路径？无升级路径的标记 `no-trigger`
+- 阶梯误用检查：阶段 2 的 `ponytail_shortcuts` 是否涉及文档明确指定的项？
+
 ### 4.3 阶段 4 输出 schema
+
+一致性 verification item 反查：
 
 ```markdown
 ## Phase 4 Parent Recheck
 - verification_id:
+- parent_verdict: confirmed|rejected|partial
+- checked_with:
+- parent_evidence:
+- recommended_action:
+- requires_user_approval: yes|no
+```
+
+Ponytail 反查（over-engineering / 安全护栏 / shortcut 审计）：
+
+```markdown
+## Phase 4 Parent Recheck — Ponytail
+- verification_id:
+- recheck_type: over_engineering | safety_guardrail | shortcut_audit
 - parent_verdict: confirmed|rejected|partial
 - checked_with:
 - parent_evidence:
@@ -361,6 +451,8 @@ metadata:
 - 阶段 3 子 agent 写代码：违反硬约束，阶段 3 只读不写
 - worked example 的经验没有上升为规则：容易把项目特定经验误当通用规则
 - **派子 agent 干长连接/长轮询/网络长会话任务前,先评估超时风险** — 任务描述里出现 `等 X 发生` / `实时` / `watch` / `长连接` / `流` / `订阅` → 默认改主 agent 后台进程 (`terminal background=true, notify_on_complete=true`),**不**派子 agent。子 agent 没有 stop 信号, 容易 600s 跑满仍卡住
+- **Ponytail 阶梯误用于文档指定项**：文档明确指定了库/抽象/API 形式时，子 agent 仍走 Ponytail 阶梯简化 → 违反忠实执行原则。阶梯仅适用于文档未指定的实现细节。
+- **over-engineering finding 未走用户决策**：子 agent 发现文档过度设计后直接简化实施，跳过用户确认 → 违反核心原则 7。必须 `requires_user_decision: yes`。
 
 ## Stage 4 反查清单
 
@@ -390,3 +482,4 @@ metadata:
 
 ### 与其他 skill 的关系
 - `parallel-task-decomposition` 的“两阶段 doc→code 模板”是本 skill 的轻量版，适用于快速同步；本 skill 适用于高风险、多文件、严格审计场景，因为它多了阶段 3 再校验与阶段 4 反查门。
+- `ponytail` — 本 workflow 融合了 Ponytail 的 lazy-senior-dev 理念。阶段 1 审查文档过度设计，阶段 2 文档未指定时走 Ponytail 阶梯，阶段 3 叠加 over-engineering 检查。Ponytail 规则已内嵌于各阶段模板中，无需额外安装即可工作；安装 ponytail skill 后可在非 4-phase 的日常编码任务中独立使用。

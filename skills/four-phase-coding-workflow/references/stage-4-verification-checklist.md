@@ -113,6 +113,45 @@ grep -nE "public static <methodName>\(" <file.ets>
 **何时必做**:阶段 2 任务涉及"实现函数/类/方法",且 spec 明确写了导出形式(class vs function)。
 **失败信号**:阶段 4 grep 出 0 个匹配但 spec 说应该存在 → 子 agent 用了别的形式,回去修。
 
+### 类别 H: Ponytail 反查 (条件性 — 仅当阶段 1/3 产出 Ponytail 相关 finding 时触发)
+
+```bash
+# H1. Over-engineering finding 验证
+# 阶段 1 报告文档过度设计时,验证 claim 是否属实
+# 例: 阶段 1 说"文档指定了 moment.js 但 stdlib Intl.DateTimeFormat 可替代"
+grep -nE "moment|date-fns" <实施文档>         # 确认文档确实指定了该库
+grep -nE "Intl\\.DateTimeFormat" <代码文件>   # 确认替代方案可行(或查 stdlib 文档)
+
+# H2. 安全护栏违反验证
+# 阶段 3 报告安全护栏违反时,grep commit diff 确认
+git diff <commit_hash> -- <file> | grep -E "(validation|sanitize|escape|auth|permission|password|token)"
+# 确认被移除的验证是否真的是"不可简化项",而非文档没要求的额外验证
+
+# H3. ponytail: shortcut 审计
+# 阶段 2 标注的所有 ponytail: 注释是否都包含了上限和升级路径
+grep -rnE "(#|//) ?ponytail:" <代码目录>
+# 检查每个 hit: 是否包含升级路径(如 "if throughput matters")
+# 没有升级路径的 → 标记 no-trigger,这些是静默腐烂风险
+
+# H4. Ponytail 阶梯误用检查
+# 确认子 agent 没有对文档指定项使用 Ponytail 阶梯简化
+# 如果阶段 2 报告了 ponytail_shortcuts,逐条核对:
+#   - 该 shortcut 是否涉及文档明确指定的 API/库/抽象?
+#   - 是 → 违反优先级规则,需要回退
+#   - 否 → 合法 shortcut
+```
+
+**何时触发**:
+- 阶段 1 产出 `over_engineering` 类型的 finding
+- 阶段 3 产出 over-engineering verification item 或安全护栏违反项
+- 阶段 2 报告 `ponytail_shortcuts` 非 none
+
+**失败信号**:
+- H1: 文档没有指定该库/抽象 → over-engineering finding 失实
+- H2: 被移除的验证在文档中确实有要求 → 安全护栏违反确认
+- H3: shortcut 没有升级路径 → 标记 no-trigger 风险
+- H4: shortcut 涉及文档指定项 → 阶段 2 违反优先级规则
+
 ## 真实失实案例 (M2-01 阶段 1)
 
 子 agent A 报告:`idx_project_active (type, is_paused, deleted_at) 复合索引` 用于 queryByType
@@ -129,6 +168,7 @@ grep -nE "public static <methodName>\(" <file.ets>
 ## 反查完成标准
 
 - 14 项全部完成(可按需裁剪,但 A/B/C/F 是核心)
+- 类别 H 为条件性触发项(仅当阶段 1/3/2 产出 Ponytail 相关 finding 时触发)
 - 每项标记 ✅/❌/⚠️
 - ❌ 项 → 进入"修复建议",等用户拍板
 - ✅ + ⚠️ 项 → 写入"真实施记录"作为可追溯证据
