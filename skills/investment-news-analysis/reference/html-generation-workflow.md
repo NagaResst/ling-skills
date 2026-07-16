@@ -115,8 +115,17 @@ fund.full.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 ### 交互完整性
 
 - Chart init 和 hover init 各自独立 `try/catch`
-- Hover wrappers 不能侵入 headings 或 card titles
-- 浏览器端验证应包含 `h3 .fund-hover-ref === 0`
+- Hover wrappers 不能侵入 `.mini-card h4`、`.action-column h3`、`.toc`、`.table-wrap`
+- 第四章 `#sec-4 .decision-item-hdr h3 .fund-ref` 应与决策卡数量一致；第七章 `#sec-7 .fund-ref === 0`
+- Fund matching 不能只匹配 `fund.full`；还要兼容第四章标题里的纯 `fund.name`，并按长串优先匹配
+- 悬浮卡片显隐不能只依赖 CSS `:hover`；模板必须提供 JS 显式切换 `.is-open` 作为兜底，至少覆盖 `mouseenter` / `mouseleave` / `focus` / `blur` / `Escape` / outside click
+
+## 融资余额口径
+
+- 沪市优先用 `akshare.macro_china_market_margin_sh()`
+- 深市优先用 `akshare.macro_china_market_margin_sz()`
+- `stock_margin_sse()` 不可用作当日沪市汇总口径，它返回的并不是当前交易日最新汇总
+- 当北交所程序化数据源未验证时，日报和 HTML 统一展示**沪深两市口径**，并明确“不含北交所”
 
 ## 历史 HTML 的使用边界
 

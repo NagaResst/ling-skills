@@ -88,8 +88,9 @@
       .toc a:not(.toc-sub) .n { background: var(--accent); color: #fff; }
       /* 基金悬浮卡片 */
       .fund-ref { position: relative; display: inline-flex; align-items: baseline; color: var(--accent); font-weight: 700; cursor: pointer; text-decoration: underline dotted rgba(124,58,237,0.4); text-underline-offset: 3px; }
-      .fund-card { position: absolute; left: 0; top: auto; bottom: calc(100% + 10px); width: 220px; padding: 12px 13px; border: 1px solid rgba(124,58,237,0.18); border-radius: 14px; background: rgba(255,252,247,0.98); box-shadow: 0 16px 34px rgba(80,56,36,0.16); opacity: 0; transform: translateY(6px); pointer-events: none; transition: opacity 0.16s ease, transform 0.16s ease; z-index: 9999; }
-      .fund-ref:hover .fund-card, .fund-ref:focus-visible .fund-card { opacity: 1; transform: translateY(0); }
+      .fund-ref-text { display: inline; }
+      .fund-card { position: absolute; left: 0; top: auto; bottom: calc(100% + 10px); width: 220px; padding: 12px 13px; border: 1px solid rgba(124,58,237,0.18); border-radius: 14px; background: rgba(255,252,247,0.98); box-shadow: 0 16px 34px rgba(80,56,36,0.16); opacity: 0; visibility: hidden; transform: translateY(6px); pointer-events: none; transition: opacity 0.16s ease, transform 0.16s ease, visibility 0s linear 0.16s; z-index: 9999; }
+      .fund-ref.is-open .fund-card, .fund-ref:hover .fund-card, .fund-ref:focus .fund-card, .fund-ref:focus-visible .fund-card { opacity: 1; visibility: visible; transform: translateY(0); transition-delay: 0s; }
       .fund-card-name { display: block; margin-bottom: 2px; font-size: 13px; font-weight: 700; color: var(--ink); }
       .fund-card-code { display: block; margin-bottom: 10px; font-size: 11px; color: var(--muted); }
       .fund-card-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
@@ -179,7 +180,7 @@
         .toc a:hover { background: var(--accent-soft); border-color: rgba(124,58,237,0.2); color: var(--accent); }
         section h2 { font-size: 18px; }
         .fund-card { left: 50%; bottom: auto; top: calc(100% + 10px); transform: translate(-50%, 6px); }
-        .fund-ref:hover .fund-card, .fund-ref:focus-visible .fund-card { transform: translate(-50%, 0); }
+        .fund-ref.is-open .fund-card, .fund-ref:hover .fund-card, .fund-ref:focus .fund-card, .fund-ref:focus-visible .fund-card { transform: translate(-50%, 0); }
       }
       @media (max-width: 640px) {
         .shell { padding: 20px 14px 48px; }
@@ -724,10 +725,16 @@
           return;
         }
 
-        const fundMap = new Map(funds.map((fund) => [fund.full, fund]));
+        const fundEntries = funds.flatMap((fund) => {
+          const entries = [];
+          if (fund.full) entries.push([fund.full, fund]);
+          if (fund.name) entries.push([fund.name, fund]);
+          return entries;
+        });
+        const fundMap = new Map(fundEntries);
         const pattern = new RegExp(
-          funds
-            .map((fund) => fund.full.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+          fundEntries
+            .map(([label]) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
             .sort((left, right) => right.length - left.length)
             .join("|"),
           "g"
@@ -742,6 +749,9 @@
                 return NodeFilter.FILTER_REJECT;
               }
               if (parent.closest("#sec-7, .fund-ref, nav, a, table, script, style")) {
+                return NodeFilter.FILTER_REJECT;
+              }
+              if (parent.closest('.mini-card h4, .action-column h3, .toc, .table-wrap')) {
                 return NodeFilter.FILTER_REJECT;
               }
               pattern.lastIndex = 0;
@@ -793,6 +803,51 @@
             node.parentNode.replaceChild(fragment, node);
           }
         }
+
+        const refs = Array.from(document.querySelectorAll('.fund-ref'));
+        let openRef = null;
+
+        const closeRef = (ref) => {
+          if (!ref) return;
+          ref.classList.remove('is-open');
+          if (openRef === ref) openRef = null;
+        };
+
+        const openRefCard = (ref) => {
+          if (!ref) return;
+          if (openRef && openRef !== ref) {
+            closeRef(openRef);
+          }
+          ref.classList.add('is-open');
+          openRef = ref;
+        };
+
+        for (const ref of refs) {
+          ref.addEventListener('mouseenter', () => openRefCard(ref));
+          ref.addEventListener('mouseleave', () => closeRef(ref));
+          ref.addEventListener('focus', () => openRefCard(ref));
+          ref.addEventListener('blur', () => closeRef(ref));
+          ref.addEventListener('click', (event) => {
+            event.stopPropagation();
+            if (ref.classList.contains('is-open')) {
+              closeRef(ref);
+            } else {
+              openRefCard(ref);
+            }
+          });
+          ref.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+              closeRef(ref);
+              ref.blur();
+            }
+          });
+        }
+
+        document.addEventListener('click', (event) => {
+          if (openRef && !openRef.contains(event.target)) {
+            closeRef(openRef);
+          }
+        });
       })();
     </script>
   </body>

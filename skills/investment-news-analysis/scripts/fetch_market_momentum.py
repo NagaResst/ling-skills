@@ -753,6 +753,65 @@ def get_northbound_weekly_summary(as_of_date, days=7):
         return {"status": "error", "period": f"近{days}天", "message": str(exc)}
 
 
+def get_hs_margin_summary(as_of_date):
+    try:
+        cutoff_date = get_prior_day_cutoff(as_of_date)
+        sh_df = ak.macro_china_market_margin_sh()
+        sz_df = ak.macro_china_market_margin_sz()
+        if sh_df.empty or sz_df.empty:
+            return {"status": "not_found", "requested_as_of_date": as_of_date, "cutoff_date": str(cutoff_date)}
+
+        sh_df = sh_df.copy()
+        sz_df = sz_df.copy()
+        sh_df["日期"] = pd.to_datetime(sh_df["日期"], errors="coerce").dt.date
+        sz_df["日期"] = pd.to_datetime(sz_df["日期"], errors="coerce").dt.date
+
+        sh_row = sh_df[sh_df["日期"] <= cutoff_date].sort_values(by="日期", ascending=False).head(1)
+        sz_row = sz_df[sz_df["日期"] <= cutoff_date].sort_values(by="日期", ascending=False).head(1)
+        if sh_row.empty or sz_row.empty:
+            return {"status": "not_found", "requested_as_of_date": as_of_date, "cutoff_date": str(cutoff_date)}
+
+        sh = sh_row.iloc[0]
+        sz = sz_row.iloc[0]
+        sh_margin = safe_float(sh.get("融资余额"), 2)
+        sh_total = safe_float(sh.get("融资融券余额"), 2)
+        sz_margin = safe_float(sz.get("融资余额"), 2)
+        sz_total = safe_float(sz.get("融资融券余额"), 2)
+        sh_margin_yi = round(sh_margin / 1e8, 2) if sh_margin is not None else None
+        sh_total_yi = round(sh_total / 1e8, 2) if sh_total is not None else None
+        sz_margin_yi = round(sz_margin / 1e8, 2) if sz_margin is not None else None
+        sz_total_yi = round(sz_total / 1e8, 2) if sz_total is not None else None
+
+        return {
+            "status": "success",
+            "requested_as_of_date": as_of_date,
+            "cutoff_date": str(cutoff_date),
+            "markets_included": ["SH", "SZ"],
+            "excludes": ["BJ"],
+            "sh_date": str(sh.get("日期")),
+            "sz_date": str(sz.get("日期")),
+            "sh_margin_balance": sh_margin,
+            "sh_margin_balance_yi": sh_margin_yi,
+            "sh_margin_total": sh_total,
+            "sh_margin_total_yi": sh_total_yi,
+            "sz_margin_balance": sz_margin,
+            "sz_margin_balance_yi": sz_margin_yi,
+            "sz_margin_total": sz_total,
+            "sz_margin_total_yi": sz_total_yi,
+            "hs_margin_balance": round(sh_margin + sz_margin, 2) if sh_margin is not None and sz_margin is not None else None,
+            "hs_margin_balance_yi": round((sh_margin + sz_margin) / 1e8, 2) if sh_margin is not None and sz_margin is not None else None,
+            "hs_margin_total": round(sh_total + sz_total, 2) if sh_total is not None and sz_total is not None else None,
+            "hs_margin_total_yi": round((sh_total + sz_total) / 1e8, 2) if sh_total is not None and sz_total is not None else None,
+            "source": {
+                "sh": "akshare.macro_china_market_margin_sh",
+                "sz": "akshare.macro_china_market_margin_sz",
+            },
+            "note": "统一按沪深两市口径展示，不含北交所。",
+        }
+    except Exception as exc:
+        return {"status": "error", "requested_as_of_date": as_of_date, "message": str(exc)}
+
+
 def get_sina_etf_history(symbol):
     url = f"https://finance.sina.com.cn/realstock/company/{symbol}/hisdata_klc2/klc_kl.js"
     response = requests.get(url, timeout=20, verify=False)
@@ -1103,6 +1162,7 @@ def build_payload(as_of_date, holdings_file):
         "previous_report_context": previous_report_context,
         "northbound_daily_raw": get_northbound_daily_raw(as_of_date),
         "northbound_weekly_summary": get_northbound_weekly_summary(as_of_date=as_of_date),
+        "hs_margin_summary": get_hs_margin_summary(as_of_date),
         "core_industry_etf_daily": core_industry_etf_daily,
         "sw_l2_industry_daily": get_sw_l2_industry_daily(as_of_date),
         "relevant_etf_daily": build_relevant_etf_daily(as_of_date, core_industry_etf_daily),

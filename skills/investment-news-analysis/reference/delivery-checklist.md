@@ -118,14 +118,16 @@ else:
 
 若模板启用了 `.fund-ref` / `.fund-card` 悬浮卡片：
 
-1. **h3 标题不能被 hover 包裹侵入**：检查 `h3 .fund-hover-ref` 数量应为 0。hover wrappers 不能出现在 headings 或 card-title 节点下。
-2. **DOM 节点已实际生成**：`.fund-ref` 数量 > 0 且 `.fund-card` 数量 > 0。交付标准不是"脚本看起来像对了"，而是浏览器 DOM 中相关节点已实际生成。
-3. **false positive 检查**：检查裸代码残留时，hover 卡片里的 `代码 005851` 会造成 false positive。已知好的 hover 正则转义：
+1. **第四章标题必须有 hover 包裹**：检查 `#sec-4 .decision-item-hdr h3 .fund-ref` 数量应等于第四章决策卡数量。第四章标题必须能直接触发悬浮卡片。
+2. **不该注入的位置不能被污染**：检查 `.mini-card h4 .fund-ref == 0`、`.action-column h3 .fund-ref == 0`、`.toc .fund-ref == 0`、`#sec-7 .fund-ref == 0`。
+3. **DOM 节点已实际生成且可打开**：`.fund-ref` 数量 > 0 且 `.fund-card` 数量 > 0；并且至少抽查一个节点，通过 hover / focus / click 其中任一方式能让卡片进入可见态（如 `opacity: 1` 或 wrapper 带 `.is-open`）。
+4. **匹配口径检查**：第四章标题常只写基金名称，不带代码；hover 匹配不能只认 `fund.full`，还必须兼容 `fund.name`。
+5. **false positive 检查**：检查裸代码残留时，hover 卡片里的 `代码 005851` 会造成 false positive。已知好的 hover 正则转义：
    ```js
    fund.full.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
    ```
-4. **正则转义断线检测**：如果转义序列断了，页面肉眼正常但所有 hover 节点注入会静默失败。检查 `.fund-ref` 数量是否大于 0 来确认。
-5. **try/catch 独立**：Chart init 和 hover init 各自独立 `try/catch`，一个失败不能 disable 整个页面。
+6. **正则转义断线检测**：如果转义序列断了，页面肉眼正常但所有 hover 节点注入会静默失败。检查 `.fund-ref` 数量是否大于 0 来确认。
+7. **try/catch 独立**：Chart init 和 hover init 各自独立 `try/catch`，一个失败不能 disable 整个页面。
 
 ## 五、交付前校验输出格式
 
