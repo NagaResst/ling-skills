@@ -26,7 +26,7 @@ def load_json(code):
     json_path = f"web-platform/public/data/{code}.json"
     if not os.path.exists(json_path):
         print(f"❌ 文件不存在: {json_path}")
-        print(f"   请先运行: python3 skills/fund-deep-research/scripts/build_json_from_cache.py {code}")
+        print(f"   请先运行: python3 build_json_from_cache.py {code}")
         sys.exit(1)
     
     with open(json_path, 'r', encoding='utf-8') as f:

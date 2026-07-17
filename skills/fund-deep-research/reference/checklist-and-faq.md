@@ -362,7 +362,7 @@
 
 完成报告后如需转换为 Web 平台 JSON，按 SKILL.md 中的自动化流水线执行，并额外确认：
 - [ ] 已同步更新 `web-platform/public/data/index.json`（不存在则新增条目，存在则更新索引字段）
-- [ ] 已运行 `python3 skills/fund-deep-research/scripts/validate_json_schema.py <基金代码>`
+- [ ] 已运行 `python3 scripts/validate_json_schema.py <基金代码>`
 - [ ] 如需更新前端发布产物，已运行 `cd web-platform && npm run build`
 
 ---

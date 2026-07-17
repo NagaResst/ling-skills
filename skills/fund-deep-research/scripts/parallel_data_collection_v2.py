@@ -32,7 +32,7 @@ OUTPUT_FILE_MAP = {
 def run_script(script_name, args, timeout=60):
     """运行单个脚本并返回结果"""
     try:
-        cmd = [sys.executable, f'skills/fund-deep-research/scripts/{script_name}'] + args
+        cmd = [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), script_name)] + args
         result = subprocess.run(
             cmd,
             capture_output=True,

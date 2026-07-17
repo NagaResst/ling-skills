@@ -4,7 +4,7 @@
 build_json_from_cache.py — 从缓存自动组装/更新 web-platform JSON
 
 用法：
-    python3 skills/fund-deep-research/scripts/build_json_from_cache.py <基金代码>
+    python3 build_json_from_cache.py <基金代码>
 
 功能：
     1. 读取 /tmp/fund_research_{code}/raw/ 下所有缓存文件
@@ -33,7 +33,7 @@ from typing import Optional, Union
 
 # ─── 路径配置 ──────────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "../../.."))
+REPO_ROOT = os.getcwd()
 DATA_DIR = os.path.join(REPO_ROOT, "web-platform/public/data")
 MIRROR_DATA_DIR = os.path.join(REPO_ROOT, "基金研究报告/web/data")
 REPORT_DIR = os.path.join(REPO_ROOT, "基金研究报告")
@@ -1345,7 +1345,7 @@ def main():
     print()
     save_json(code, existing)
     print(f"\n完成。B类缺失字段请参考：")
-    print(f"  skills/fund-deep-research/reference/report_to_json_spec.md")
+    print(f"  reference/report_to_json_spec.md")
 
 
 if __name__ == "__main__":

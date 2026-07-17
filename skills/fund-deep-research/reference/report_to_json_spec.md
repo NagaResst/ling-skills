@@ -731,10 +731,10 @@
 
 ```bash
 # 首次填充（已有字段不覆盖）
-python3 skills/fund-deep-research/scripts/merge_b_fields.py <基金代码> <B类字段JSON文件>
+python3 scripts/merge_b_fields.py <基金代码> <B类字段JSON文件>
 
 # 强制覆盖更新
-python3 skills/fund-deep-research/scripts/merge_b_fields.py <基金代码> <B类字段JSON文件> --overwrite
+python3 scripts/merge_b_fields.py <基金代码> <B类字段JSON文件> --overwrite
 ```
 
 ---
@@ -743,17 +743,17 @@ python3 skills/fund-deep-research/scripts/merge_b_fields.py <基金代码> <B类
 
 ```bash
 # Step 1：运行研究脚本，生成缓存
-python3 skills/fund-deep-research/scripts/parallel_data_collection_v2.py 003984
+python3 scripts/parallel_data_collection_v2.py 003984
 
 # Step 2：生成研究报告（AI辅助写作）
 # → 输出到 基金研究报告/{code}_*.md
 
 # Step 3：用缓存自动填写 A 类字段
-python3 skills/fund-deep-research/scripts/build_json_from_cache.py 003984
+python3 scripts/build_json_from_cache.py 003984
 
 # Step 4：用报告 AI 提取 B 类字段
 # → 使用本规范，将 AI 输出保存为 /tmp/fund_research_003984/b_fields.json
 
 # Step 5：合并 B 类字段
-python3 skills/fund-deep-research/scripts/merge_b_fields.py 003984 /tmp/fund_research_003984/b_fields.json
+python3 scripts/merge_b_fields.py 003984 /tmp/fund_research_003984/b_fields.json
 ```

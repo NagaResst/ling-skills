@@ -148,35 +148,35 @@ AI会自动执行以下步骤：
 
 ```bash
 # 获取基础信息（含风险等级、赎回费规则）
-python skills/fund-deep-research/scripts/ak_fund_basic.py 003984
+python scripts/ak_fund_basic.py 003984
 
 # 获取净值历史
-python skills/fund-deep-research/scripts/ak_nav_history.py 003984
+python scripts/ak_nav_history.py 003984
 
 # 分析持仓
-python skills/fund-deep-research/scripts/ak_holdings.py 003984
+python scripts/ak_holdings.py 003984
 
 # 计算风险指标（13项）
-python skills/fund-deep-research/scripts/calc_risk_metrics.py 003984
+python scripts/calc_risk_metrics.py 003984
 
 # 计算相对基准指标（Beta/Alpha等）
-python skills/fund-deep-research/scripts/calc_relative_metrics.py 003984
+python scripts/calc_relative_metrics.py 003984
 
 # 识别拐点
-python skills/fund-deep-research/scripts/calc_inflection_points.py 003984
+python scripts/calc_inflection_points.py 003984
 
 # 获取经理信息（含在管统计）
-python skills/fund-deep-research/scripts/fetch_manager_info.py 003984
+python scripts/fetch_manager_info.py 003984
 
 # 黑名单检查
-python skills/fund-deep-research/scripts/check_blacklist.py 003984
+python scripts/check_blacklist.py 003984
 ```
 
 #### 2. 运行并行收集脚本（推荐）
 
 ```bash
 # 仅当 NEXT_ACTION=FULL_FETCH 时使用
-python skills/fund-deep-research/scripts/parallel_data_collection_v2.py 003984
+python scripts/parallel_data_collection_v2.py 003984
 ```
 
 这会自动：
@@ -189,7 +189,7 @@ python skills/fund-deep-research/scripts/parallel_data_collection_v2.py 003984
 
 ```bash
 # 预检与缓存管理
-python skills/fund-deep-research/scripts/precheck.py 003984
+python scripts/precheck.py 003984
 ```
 
 输出示例：

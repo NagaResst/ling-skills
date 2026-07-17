@@ -14,8 +14,7 @@ import json
 import os
 import sys
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "../../.."))
+REPO_ROOT = os.getcwd()
 DATA_DIR = os.path.join(REPO_ROOT, "web-platform/public/data")
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Step 2：数据完整性与时效性检查
-用法：python3 skills/fund-deep-research/scripts/check_data_integrity.py <基金代码>
+用法：python3 check_data_integrity.py <基金代码>
 
 检查 /tmp/fund_research_{code}/raw/ 下所有 JSON 的完整性和时效性，
 输出需要处理的问题列表，并返回对应的 NEXT_ACTION。
@@ -174,15 +174,15 @@ def main():
         elif has_stale_nav:
             print("NEXT_ACTION: REFRESH_NAV")
             print("→ 重拉 nav_daily.json：")
-            print(f"  python3 skills/fund-deep-research/scripts/ak_nav_history.py {code}")
+            print(f"  python3 ak_nav_history.py {code}")
         elif has_stale_rel:
             print("NEXT_ACTION: REFRESH_RELATIVE")
             print("→ 重算 relative_metrics.json：")
-            print(f"  python3 skills/fund-deep-research/scripts/calc_relative_metrics.py {code}")
+            print(f"  python3 calc_relative_metrics.py {code}")
         elif has_manager_refresh:
             print("NEXT_ACTION: REFRESH_MANAGER")
             print("→ 重拉 manager_info.json：")
-            print(f"  python3 skills/fund-deep-research/scripts/fetch_manager_info.py {code}")
+            print(f"  python3 fetch_manager_info.py {code}")
         elif has_stale_ho:
             print("NEXT_ACTION: REFRESH_HOLDINGS")
             print("→ 重跑 parallel_data_collection.py 更新持仓季报数据")

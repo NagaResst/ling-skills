@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Step 0：预检与缓存管理脚本
-用法：python3 skills/fund-deep-research/scripts/precheck.py <基金代码>
+用法：python3 precheck.py <基金代码>
 
 功能：
 1. 检查 /tmp/fund_research_{code}/ 缓存状态
