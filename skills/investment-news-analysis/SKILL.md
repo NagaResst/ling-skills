@@ -50,7 +50,7 @@ HTML 投资建议报告的唯一结构规范与唯一页面骨架。两者必须
 | 画像约束前    | `投资者行动/投资者画像.md`                                                                                                                                                           | 黑名单、风险偏好、工具边界                                |
 | 搜索前      | [reference/archiving.md](reference/archiving.md)                                                                                                                           | 当日归档目录、单条摘要字段、去重规则                           |
 | 搜索阶段     | [reference/search-strategy.md](reference/search-strategy.md)                                                                                                               | 以`finance_news.json`为初始轮素材，额外再加上网络搜到的素材归档到本地 |
-| 定量数据前    | `scripts/fetch_market_momentum.py`                                                                                                                                         | 前一交易日官方净值、宽基ETF收盘、申万二级行业指数、北向单日、沪深两市融资余额、持仓快照                  |
+| 定量数据前    | `scripts/fetch_market_momentum.py`                                                                                                                                         | 前一交易日官方净值、宽基ETF收盘、申万二级行业指数、北向单日、沪深两市融资余额、两市总成交额、持仓快照                  |
 | 历史读取前    | [reference/historical-data.md](reference/historical-data.md)                                                                                                               | 历史 summary 提取、最近可比较基准读取、持仓变化对比               |
 | 预测前      | [reference/prediction-verification.md](reference/prediction-verification.md)                                                                                               | 信息充分性检查                               |
 | HTML 输出前 | [reference/investment-advice-report-20260517-guide.md](reference/investment-advice-report-20260517-guide.md) + `reference/investment-advice-report-20260517-template.html` | 必须基于模板文件填充出的完整 HTML 页面，禁止自定义另一套页面骨架 |
@@ -179,6 +179,8 @@ python3 skills/investment-news-analysis/scripts/fetch_market_momentum.py --date 
 4. **ETF 数据分两组**：`relevant_etf_daily` 和 `core_industry_etf_daily`，不是 `etf_daily`（该字段为空字典）。
 5. **analysis_snapshot vs holding_valuation_snapshot**：做调仓计算时优先使用 `analysis_snapshot`，因为它有 `full` 和 `holding_weight_pct` 等便利字段。
 6. **持仓文件解析**：`fetch_market_momentum.py` 要求持仓文件为扁平 `key: value` 格式。购入时间嵌套格式会导致解析器静默截断。始终显式传入 `--holdings-file`。
+7. **市场量能总览**：`market_turnover_summary` 字段含两市总成交额，来自 `stock_sse_deal_daily`（上交所，单位亿元）和 `stock_szse_summary`（深交所，原始单位元，已换算为亿元）。`hs_margin_summary` 字段含全市场融资融券余额，来自 `stock_margin_account_info`（含沪深+北交所，单位亿元，无需再分别查沪深两所）。与 `northbound_daily_raw` 三者搭配可评估市场整体量能。日报和 HTML 报告中均需展示这三项指标的对比表。
+8. **item_summaries 归档边界**：北向资金、融资余额、成交额等脚本定量数据不创建 item_summary。这些数据已在 `raw_data/market_momentum_YYYY-MM-DD.json` 中，在日报第四章展示即可。把它们当作"新闻条目"归档会挤占真正新闻的位置。
 
 ### 网络搜索补充的可靠性
 
