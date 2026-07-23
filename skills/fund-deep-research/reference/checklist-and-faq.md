@@ -267,6 +267,10 @@
 - [ ] **Step 5.5E: 已生成 `[Step5-ComplianceSummary]`**
 
 ### Step 6: 报告生成（严格按顺序）
+- [ ] **写报告前置检查（全部通过后才能开始写任何章节）**：
+  - [ ] Step 5 派出的子智能体已全部返回（收到 `[ASYNC DELEGATION BATCH COMPLETE]` 通知）
+  - [ ] `search_log.md` 已包含 `[Step5-QuarterlyQuote]`、`[Step5-PolicyRaw]`、`[Step5-Compliance]`、`[Step5-ManagerAudit]`、`[Step5-MarketCompare]` 五个标签的段落（每个至少 1 条）
+  - [ ] `inflection_points.json` 中所有拐点已有对应时间段的外部环境证据
 - [ ] **预声明-批量读取协议**：每章开始前已声明并批量读取所需文件
 - [ ] **第一章**：已读取 `fund_enhanced.json` + `manager_info.json`，基础信息完整
   - [ ] 风险等级已填写（R1-R5）

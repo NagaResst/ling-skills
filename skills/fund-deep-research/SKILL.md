@@ -559,6 +559,30 @@ read_file /tmp/fund_research_{code}/raw/inflection_points.json
 
 ### Step 6：📝 AI逐章生成研究报告
 
+#### 写报告前置检查（必须全部通过后才能开始写任何章节）
+
+> ❌ **禁止**：在 Step 5 的子智能体搜索结果未返回并写入 `search_log.md` 之前，提前开始写报告。
+> 子智能体是异步后台任务，派出后必须等待其完成通知，确认搜索结果已落盘到 `/tmp/fund_research_{code}/analysis/search_log.md`，才能进入 Step 6。
+
+**写报告前必须确认以下条件全部满足：**
+
+1. ✅ Step 1 的 11 个 JSON 文件已全部读取（或缺失文件已有替代方案）
+2. ✅ Step 5 派出的子智能体已全部返回（收到 `[ASYNC DELEGATION BATCH COMPLETE]` 通知）
+3. ✅ `search_log.md` 已包含以下标签的段落（每个至少 1 条）：
+   - `[Step5-QuarterlyQuote]`（季报原文）
+   - `[Step5-PolicyRaw]`（政策原文，含文号）
+   - `[Step5-Compliance]`（合规检查）
+   - `[Step5-ManagerAudit]`（经理背景）
+   - `[Step5-MarketCompare]`（市场对比）
+4. ✅ `inflection_points.json` 中所有拐点已有对应时间段的外部环境证据（若某拐点证据不足，已在 `search_log.md` 中标注"证据缺失"并说明已尝试的搜索路径）
+
+**若上述任一条件未满足：**
+- 子智能体未返回 → 等待返回，不提前开始写报告
+- 某标签缺失 → 补充搜索后再继续
+- 拐点证据不足 → 对缺失拐点对应时段做定向搜索，直到收集到足够事实
+
+> ⚠️ **核心原则**：Step 5 的外部证据是 Step 6 写报告的前置依赖，不是可并行或可后补的附加任务。提前开始写报告会导致季报原文引用不完整、政策文号缺失、合规检查不充分。
+
 #### 逐章生成协议（严格按此顺序）
 
 > ❌ **禁止**：跳过下方协议直接写整篇报告。
