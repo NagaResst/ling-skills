@@ -127,6 +127,15 @@
       .badge-light { background: #f8fafc; color: var(--muted); border: 1px solid var(--line); }
       .grid-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px,1fr)); gap: 14px; }
       .mini-card { padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius-md); background: #fff; box-shadow: var(--shadow-sm); }
+      .news-list { display: flex; flex-direction: column; gap: 12px; }
+      .news-item { padding: 14px 18px; border: 1px solid var(--line); border-radius: var(--radius-md); background: #fff; box-shadow: var(--shadow-sm); transition: box-shadow 0.2s ease, transform 0.2s ease; }
+      .news-item:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+      .news-item h4 { margin: 0 0 6px; font-size: 14.5px; font-weight: 700; color: var(--ink); }
+      .news-meta { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+      .news-meta a { color: var(--accent); text-decoration: none; }
+      .news-meta a:hover { text-decoration: underline; }
+      .news-item p { margin: 0 0 6px; font-size: 13.5px; line-height: 1.7; color: var(--ink); }
+      .news-item .muted { font-size: 12.5px; }
       .mini-card h4 { margin: 0 0 10px; font-size: 15px; font-weight: 700; color: var(--ink); }
       /* 决策卡片 */
       .decision-list { display: grid; gap: 14px; }
@@ -210,8 +219,8 @@
             <span class="meta-value">{{holdings_count_text}}</span>
           </div>
           <div class="meta-card">
-            <span class="meta-label">归档形式</span>
-            <span class="meta-value">HTML 页面</span>
+            <span class="meta-label">组合浮盈</span>
+            <span class="meta-value">{{portfolio_pnl_pct}}</span>
           </div>
         </div>
 
@@ -287,6 +296,14 @@
             </div>
           </section>
 
+          <section id="sec-2b" class="panel">
+            <h2>近期重要新闻与政策</h2>
+            <p class="muted">以下展示本轮归档的全部新闻条目，每条含发布源、原始链接和判断用途。</p>
+            <div class="news-list">
+              {{news_items_html}}
+            </div>
+          </section>
+
           <section id="sec-3" class="panel">
             <h2>三、为什么这样排优先级</h2>
             <div class="grid-two">
@@ -315,6 +332,37 @@
               </div>
             </div>
 
+            <h3>市场量能总览</h3>
+            <p class="muted">两市总成交额、北向资金、两融余额三项指标对比，用于评估市场整体量能水平。</p>
+            <div class="table-wrap">
+              <table class="etf-overview">
+                <thead>
+                  <tr>
+                    <th>指标</th>
+                    <th>数值</th>
+                    <th>备注</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>两市总成交额</td>
+                    <td>{{market_turnover_total}} 亿</td>
+                    <td>{{market_turnover_breakdown}}</td>
+                  </tr>
+                  <tr>
+                    <td>北向资金净流入</td>
+                    <td>{{northbound_net_flow}} 亿</td>
+                    <td>{{northbound_weekly_note}}</td>
+                  </tr>
+                  <tr>
+                    <td>两市融资余额</td>
+                    <td>{{margin_balance_total}} 亿</td>
+                    <td>全市场含北交所</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
             <h3>已获取 ETF 走向总览</h3>
             <p class="muted">以下表格用于集中展示本轮已抓到的核心行业 ETF 与持仓映射 ETF 走向。若两组 ETF 有重复代码，应先去重后再输出，避免重复展示。</p>
             <div class="table-wrap">
@@ -332,6 +380,81 @@
                 </tbody>
               </table>
             </div>
+
+            <h3>申万二级行业涨跌幅排行</h3>
+            <p class="muted">以下展示前一交易日申万二级行业涨幅前10与跌幅前10，用于判断细分板块强弱。</p>
+            <div class="table-wrap">
+              <table class="etf-overview">
+                <thead>
+                  <tr>
+                    <th>行业</th>
+                    <th>涨跌幅</th>
+                    <th>PE(TTM)</th>
+                    <th>PB</th>
+                    <th>股息率</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {{sw_l2_top_gainers}}
+                </tbody>
+              </table>
+            </div>
+            <div class="table-wrap">
+              <table class="etf-overview">
+                <thead>
+                  <tr>
+                    <th>行业</th>
+                    <th>涨跌幅</th>
+                    <th>PE(TTM)</th>
+                    <th>PB</th>
+                    <th>股息率</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {{sw_l2_top_losers}}
+                </tbody>
+              </table>
+            </div>
+
+            <h3>持仓相关行业对照</h3>
+            <p class="muted">列出每只持仓基金对应的申万二级行业涨跌和ETF代理涨跌。</p>
+            <div class="table-wrap">
+              <table class="etf-overview">
+                <thead>
+                  <tr>
+                    <th>持仓基金</th>
+                    <th>对应申万二级行业</th>
+                    <th>行业涨跌</th>
+                    <th>ETF代理涨跌</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {{holding_industry_rows}}
+                </tbody>
+              </table>
+            </div>
+
+            <h3>指数层结论</h3>
+            <p class="muted">{{index_level_conclusion}}</p>
+          </section>
+
+          <section id="sec-3b" class="panel">
+            <h2>政策与宏观环境</h2>
+            <div class="table-wrap">
+              <table class="etf-overview">
+                <thead>
+                  <tr>
+                    <th>方向</th>
+                    <th>最新已归档事实</th>
+                    <th>对持仓影响</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {{macro_direction_rows}}
+                </tbody>
+              </table>
+            </div>
+            <p class="muted"><strong>经济环境判断</strong>：{{macro_environment_judgment}}</p>
           </section>
 
           <section id="sec-4" class="panel">
@@ -606,27 +729,22 @@
             <h2>五、复盘与风险提示</h2>
             <div class="grid-two">
               <div class="mini-card">
-                <h4>{{review_card_1_title}}</h4>
+                <h4>市场复盘</h4>
                 <ul>
-                  <li>{{review_card_1_item_1}}</li>
-                  <li>{{review_card_1_item_2}}</li>
+                  {{market_review_items}}
                 </ul>
               </div>
               <div class="mini-card">
-                <h4>{{review_card_2_title}}</h4>
+                <h4>风险雷达</h4>
                 <ul>
-                  <li>{{review_card_2_item_1}}</li>
-                  <li>{{review_card_2_item_2}}</li>
-                  <li>{{review_card_2_item_3}}</li>
+                  {{risk_radar_items}}
                 </ul>
               </div>
               <div class="mini-card">
-                <h4>{{review_card_3_title}}</h4>
-                <ul>
-                  <li>{{review_card_3_item_1}}</li>
-                  <li>{{review_card_3_item_2}}</li>
-                  <li>{{review_card_3_item_3}}</li>
-                </ul>
+                <h4>今天该做什么</h4>
+                <ol>
+                  {{action_today_items}}
+                </ol>
               </div>
             </div>
           </section>
