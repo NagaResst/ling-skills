@@ -14,13 +14,24 @@
 ~/workspace/<repo-name>-research/
 ├── README.md              # 索引 + 结构图
 ├── 00-overview.md         # 仓库身份 / 版本 / 来源 / 依赖
-├── 01-architecture.md     # 顶层布局 + 三大数据流
+├── 01-architecture.md     # 顶层布局 + 核心数据流
 ├── 02-build-system.md     # 构建脚本 / feature flags / 宏
 ├── 03-<subsystem-A>.md    # 一个子系统一份
 ├── 04-<subsystem-B>.md
 ├── ...
 └── NN-warnings.md         # 风险 / 未验证声明 / 法律姿态
 ```
+
+**03+ 子系统文件按项目类型选关注点划分**（详见 `method-research.md` Step 5 的划分规则）：
+
+| 项目类型 | 03+ 关注点参考 |
+|---------|---------------|
+| CLI / 开发工具 | commands / tools / plugins / services |
+| 后端 API | api-routes / database-layer / middleware / service-layer / config / error-handling / security |
+| 前端 SPA | routing / state-management / component-hierarchy / api-client / styling / build-system |
+| Monorepo | 前后端各走对应模板，00-overview 额外记录 monorepo 工具和包间依赖 |
+
+**划分原则**："一个子系统 = 一个可独立阅读的关注点"，不是"一个目录 = 一份文件"。文件数 8-12 是目标不是硬限制。
 
 **为什么放仓库外**：
 - 仓库可能有 `npm install` / `cargo build` 之类的语义，被散落的 `.md` 文件污染
@@ -136,6 +147,26 @@ Fork 经常声称 "telemetry removed"，但 `package.json` 里 `@opentelemetry/*
 ### 6.6 不要跨文件重复同一事实
 
 如果构建系统在 `02-build-system.md` 描述，subsystem 文件应该**引用**它，不重写。
+
+### 6.7 后端 API：不要忽略 OpenAPI/Swagger spec
+
+如果项目有 `openapi.yaml` / `swagger.json` / `OpenAPI.java`，**它比源码更权威**——API 契约文档定义了端点的参数、响应模型、状态码，源码只是实现。先读 spec 再读源码，避免从路由代码逆向推导契约。
+
+### 6.8 后端 API：不要忽略数据库 schema / migrations
+
+后端项目的数据库层是核心子系统之一。不要只读 ORM model 文件就跳过——`migrations/` 目录里的 DDL 文件记录了 schema 演化历史，能发现 model 文件中看不到的索引策略、约束变化、废弃表。
+
+### 6.9 后端 API：不要只看路由不看中间件 pipeline
+
+后端请求的处理链路（auth → validation → rate-limit → controller → error-handler）决定了 API 的实际行为。只读路由和 controller 会漏掉认证逻辑、输入校验规则、错误处理策略。中间件注册处（如 Express 的 `app.use()` 链、Spring Boot 的 `WebMvcConfigurer`、Django 的 `MIDDLEWARE` 列表）必须单独读。
+
+### 6.10 前端 SPA：不要忽略状态管理的读写边界
+
+只读 store 定义会漏掉"谁在写、谁在读"的依赖关系。要追踪每个 state slice 的 dispatch/reducer/selector 三元组，标注哪些组件订阅了哪些 slice——这是理解前端数据流的关键。
+
+### 6.11 前端 SPA：不要把路由文件读一遍就跳过
+
+前端路由不只是 URL→组件映射。路由守卫（`beforeEach` / `onEnter`）里的权限逻辑、懒加载策略（`React.lazy` / `defineAsyncComponent`）的 chunk splitting 策略、嵌套路由的布局组件——这些都在路由配置里，值得单独成文。
 
 ---
 
