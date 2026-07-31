@@ -141,3 +141,9 @@ fund.full.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 4. 子智能体填模板超时或部分覆盖
 5. hover CSS 恢复了但忘了 JS injection path
 6. 用第一个 `<tbody>` 替换摘要表，误伤 ETF/政策表
+7. **sec-2b 新闻条目结构偏离模板**：必须使用模板定义的 `<div class="news-item"><h4>标题</h4><p class="news-meta">来源：XXX | <a href="URL" target="_blank">原始链接</a></p><p>事实摘要</p><p class="muted">判断用途：✅/⚠️/❌ 利好/中性/利空</p></div>` 四段式结构。禁止自造 `news-date`/`news-body`/`news-tag` 等非模板 class，禁止省略来源和链接，禁止把标题/内容/判断压成一行。
+8. **市场量能表"亿"重复 bug**：模板中 `{{market_turnover_total}} 亿` 已含"亿"后缀，填充数据值时不能再追加"亿"。正确：`{{market_turnover_total}}` 填 `20,500`，模板自带 ` 亿`。错误：填 `20,500 亿`，结果 `20,500 亿 亿`。同理 `{{northbound_net_flow}}`、`{{margin_balance_total}}` 均不能在数据值中包含"亿"字。
+9. **ETF 走向表必须 4 列 + 行类着色**：表头必须是 `ETF(代码) | 来源 | 前一交易日涨跌幅 | 对应持仓/备注`。每行 `<tr>` 必须根据涨跌加 `class="etf-up"`/`class="etf-down"`/`class="etf-flat"`。禁止丢"来源"列、禁止丢行类。来源填 `relevant` 或 `core`。
+10. **action-badge 必须用模板定义的类名**：模板只定义了 `hold`/`watch`/`light`/`new` 四种 action-badge 类。禁止自造 `badge-good`/`badge-warn`/`badge-rise`/`badge-hold` 等非模板类名——CSS 无定义，badge 无样式渲染。正确写法：`<span class="action-badge hold">持有不动</span>`。
+11. **sec-7 摘要表 badge 必须用模板定义的类名**：同上，`<span class="badge hold">持有不动</span>` 或 `<span class="badge watch">持有观察</span>`。禁止用 `badge-good`/`badge-warn` 等。
+12. **sec-5 列表项必须用 `<li>` 包裹**：`<ul>` 和 `<ol>` 内不能直接放纯文本行，每条内容必须用 `<li>…</li>` 包裹。裸文本在 `<ul>` 内会导致浏览器默认样式渲染异常。

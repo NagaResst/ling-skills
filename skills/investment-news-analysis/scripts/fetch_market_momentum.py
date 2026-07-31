@@ -763,7 +763,8 @@ def get_hs_margin_summary(as_of_date):
 
         df = df.copy()
         df["日期"] = pd.to_datetime(df["日期"], errors="coerce").dt.date
-        row = df[df["日期"] <= cutoff_date].sort_values(by="日期", ascending=False).head(1)
+        df_sorted = df[df["日期"] <= cutoff_date].sort_values(by="日期", ascending=False)
+        row = df_sorted.head(1)
         if row.empty:
             return {"status": "not_found", "requested_as_of_date": as_of_date, "cutoff_date": str(cutoff_date)}
 
@@ -773,6 +774,20 @@ def get_hs_margin_summary(as_of_date):
         margin_buy = safe_float(r.get("融资买入额"), 2)
         margin_total = round(margin_balance + short_balance, 2) if margin_balance is not None and short_balance is not None else None
 
+        # 前一交易日融资余额，用于对比昨日
+        prev_margin_balance = None
+        prev_date = None
+        margin_balance_change_yi = None
+        margin_balance_change_pct = None
+        if len(df_sorted) >= 2:
+            prev_r = df_sorted.iloc[1]
+            prev_margin_balance = safe_float(prev_r.get("融资余额"), 2)
+            prev_date = str(prev_r.get("日期"))
+            if prev_margin_balance is not None and margin_balance is not None:
+                margin_balance_change_yi = round(margin_balance - prev_margin_balance, 2)
+                if prev_margin_balance != 0:
+                    margin_balance_change_pct = round((margin_balance / prev_margin_balance - 1) * 100, 2)
+
         return {
             "status": "success",
             "requested_as_of_date": as_of_date,
@@ -780,6 +795,10 @@ def get_hs_margin_summary(as_of_date):
             "markets_included": ["SH", "SZ", "BJ"],
             "date": str(r.get("日期")),
             "margin_balance_yi": margin_balance,
+            "prev_margin_balance_yi": prev_margin_balance,
+            "prev_date": prev_date,
+            "margin_balance_change_yi": margin_balance_change_yi,
+            "margin_balance_change_pct": margin_balance_change_pct,
             "short_balance_yi": short_balance,
             "margin_buy_yi": margin_buy,
             "margin_total_yi": margin_total,

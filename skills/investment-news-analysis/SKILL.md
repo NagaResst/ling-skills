@@ -179,7 +179,7 @@ python3 skills/investment-news-analysis/scripts/fetch_market_momentum.py --date 
 4. **ETF 数据分两组**：`relevant_etf_daily` 和 `core_industry_etf_daily`，不是 `etf_daily`（该字段为空字典）。
 5. **analysis_snapshot vs holding_valuation_snapshot**：做调仓计算时优先使用 `analysis_snapshot`，因为它有 `full` 和 `holding_weight_pct` 等便利字段。
 6. **持仓文件解析**：`fetch_market_momentum.py` 要求持仓文件为扁平 `key: value` 格式。购入时间嵌套格式会导致解析器静默截断。始终显式传入 `--holdings-file`。
-7. **市场量能总览**：`market_turnover_summary` 字段含两市总成交额，来自 `stock_sse_deal_daily`（上交所，单位亿元）和 `stock_szse_summary`（深交所，原始单位元，已换算为亿元）。`hs_margin_summary` 字段含全市场融资融券余额，来自 `stock_margin_account_info`（含沪深+北交所，单位亿元，无需再分别查沪深两所）。与 `northbound_daily_raw` 三者搭配可评估市场整体量能。日报和 HTML 报告中均需展示这三项指标的对比表。
+7. **市场量能总览**：`market_turnover_summary` 字段含两市总成交额，来自 `stock_sse_deal_daily`（上交所，单位亿元）和 `stock_szse_summary`（深交所，原始单位元，已换算为亿元）。`hs_margin_summary` 字段含全市场融资融券余额，来自 `stock_margin_account_info`（含沪深+北交所，单位亿元，无需再分别查沪深两所）；该字段同时输出 `margin_balance_change_yi`（与前一交易日融资余额变动，单位亿元）和 `margin_balance_change_pct`（变动百分比），用于日报和 HTML 报告中"对比昨日"备注列。与 `northbound_daily_raw` 三者搭配可评估市场整体量能。日报和 HTML 报告中均需展示这三项指标的对比表。
 8. **item_summaries 归档边界**：北向资金、融资余额、成交额等脚本定量数据不创建 item_summary。这些数据已在 `raw_data/market_momentum_YYYY-MM-DD.json` 中，在日报第四章展示即可。把它们当作"新闻条目"归档会挤占真正新闻的位置。
 
 ### 网络搜索补充的可靠性

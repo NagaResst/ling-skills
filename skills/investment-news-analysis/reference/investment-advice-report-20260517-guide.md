@@ -121,7 +121,7 @@ Hero 区负责三件事：
 3. 当前结论最关键的边界是什么。
 4. 本轮已抓到的 ETF 走向全貌是什么，哪些板块强、哪些板块平、哪些板块弱。
 
-在第三章开头建议放一张"市场量能总览"表，展示两市总成交额、北向资金净流入、两市融资余额三项指标对比，用于评估市场整体量能水平。数据来自 `market_turnover_summary`、`northbound_daily_raw`、`hs_margin_summary` 三个字段。
+在第三章开头建议放一张"市场量能总览"表，展示两市总成交额、北向资金净流入、两市融资余额三项指标对比，用于评估市场整体量能水平。数据来自 `market_turnover_summary`、`northbound_daily_raw`、`hs_margin_summary` 三个字段。其中融资余额的备注列应写"对比昨日：±XX 亿（±X.XX%）"，数据来自 `hs_margin_summary.margin_balance_change_yi` 和 `hs_margin_summary.margin_balance_change_pct`，不要写"全市场含北交所"这类静态口径。
 
 如果已经补到核心行业 ETF 和持仓映射 ETF，建议在第三章直接放一张“已获取 ETF 走向总览”表，至少包含：ETF(代码)、来源、前一交易日收盘涨跌幅、走向、对应持仓/备注。若两组 ETF 有重复代码，先去重再展示。
 

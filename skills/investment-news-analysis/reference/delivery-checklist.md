@@ -113,6 +113,12 @@ else:
 | h3 标题格式 | 每个决策卡 h3 包含完整"基金名称(代码)"，不能拆到 code-badge | `re.findall(r'<h3>(.*?)</h3>', html)` |
 | 第四章当日新增 | 第二章到第六章必须体现当日新增事实，不是上一日续写 | 人工确认 |
 | 单花括号占位符 | 模板有两种占位符 `{{double_brace}}` 和 `{single_brace}`，两种都要替换 | 见上方占位符检查 |
+| sec-2b 新闻条目结构 | 必须用模板四段式：`news-item` > `h4` + `p.news-meta`(含来源+链接) + `p`(内容) + `p.muted`(判断) | `re.findall(r'class="news-item"', html)` 数量应等于新闻条数；`re.findall(r'class="news-date"', html)` 必须为 0；`re.findall(r'class="news-body"', html)` 必须为 0 |
+| 市场量能表"亿"重复 | 数据值中不能包含"亿"字（模板已自带"亿"后缀） | `re.findall(r'\d+ 亿 亿', html)` 必须为 0 |
+| ETF 走向表 4 列 + 行类 | 表头 4 列，每行有 `etf-up`/`etf-down`/`etf-flat` 类 | 人工确认；`re.findall(r'<tr class="etf-(up|down|flat)"', html)` 数量应 > 0 |
+| action-badge 类名 | 只允许模板定义的 `hold`/`watch`/`light`/`new` | `re.findall(r'action-badge (badge-|steady|rise|urgent)', html)` 必须为 0 |
+| sec-7 badge 类名 | 只允许模板定义的 `hold`/`watch`/`light`/`new`/`badge-hold`/`badge-watch` | `re.findall(r'class="badge badge-', html)` 必须为 0 |
+| sec-5 列表项 `<li>` 包裹 | `<ul>`/`<ol>` 内不能有裸文本，每条必须用 `<li>` | 人工确认或脚本校验 |
 
 ## 四、悬浮卡片校验
 
