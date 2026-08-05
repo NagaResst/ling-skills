@@ -333,34 +333,42 @@
             </div>
 
             <h3>市场量能总览</h3>
-            <p class="muted">两市总成交额、北向资金、两融余额三项指标对比，用于评估市场整体量能水平。</p>
+            <p class="muted">两市总成交额、北向资金、两融余额三项指标，从"当前值、环比趋势、信号解读"三个维度评估市场量能，避免只看绝对值。</p>
             <div class="table-wrap">
               <table class="etf-overview">
                 <thead>
                   <tr>
                     <th>指标</th>
-                    <th>数值</th>
-                    <th>备注</th>
+                    <th>当前值</th>
+                    <th>环比 / 趋势</th>
+                    <th>信号解读</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
                     <td>两市总成交额</td>
                     <td>{{market_turnover_total}} 亿</td>
-                    <td>{{market_turnover_breakdown}}</td>
+                    <td>{{market_turnover_change}}</td>
+                    <td>{{market_turnover_signal}}</td>
                   </tr>
                   <tr>
                     <td>北向资金净流入</td>
                     <td>{{northbound_net_flow}} 亿</td>
-                    <td>{{northbound_weekly_note}}</td>
+                    <td>{{northbound_trend}}</td>
+                    <td>{{northbound_signal}}</td>
                   </tr>
                   <tr>
                     <td>两市融资余额</td>
                     <td>{{margin_balance_total}} 亿</td>
-                    <td>对比昨日：{{margin_balance_change_vs_prev}}</td>
+                    <td>{{margin_balance_change_vs_prev}}</td>
+                    <td>{{margin_signal}}</td>
                   </tr>
                 </tbody>
               </table>
+            </div>
+            <div class="mini-card">
+              <h4>本期量能综合判断</h4>
+              <p>{{volume_judgment}}</p>
             </div>
 
             <h3>已获取 ETF 走向总览</h3>
