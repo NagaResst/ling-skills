@@ -125,7 +125,7 @@ python3 skills/investment-news-analysis/scripts/fetch_market_momentum.py --date 
 
 搜索顺序以 [reference/search-strategy.md](reference/search-strategy.md) 为准。主链路固定为：
 
-1. 先读今天 `raw_data/finance_news.json`对其内容进行筛选
+1. 先读今天 `raw_data/finance_news.json`对其内容进行筛选（**必须全文读取逐条筛选，禁止关键词/正则检索前置**，详见 search-strategy.md 硬规则）
 2. 然后搜政策面
 3. 再搜市场行情面和量级新闻
 4. 最后搜宏观面

@@ -135,12 +135,14 @@ fund.full.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 ## 常见坑
 
-1. 只替换 `{{...}}`，漏掉 `{fund_*}`
-2. fixed-slot 模板静默丢基金
-3. TOC / 卡片 / 摘要表 / `fund_cards_json` 不是从同一份 holdings 派生
-4. 子智能体填模板超时或部分覆盖
-5. hover CSS 恢复了但忘了 JS injection path
-6. 用第一个 `<tbody>` 替换摘要表，误伤 ETF/政策表
+1. **TOC 扩展必须全量补齐**：模板 TOC 默认只有 fund-1/fund-2/fund-n 三个 `toc-sub` 槽位，`fund-3..fund-8` 在模板里不存在。扩展到 10+ 基金时，必须**补齐 fund-3 到 fund-8 的 toc-sub**，不能只加新基金链接——否则 TOC 子链接数 ≠ 持仓数，交付校验失败。且模板 TOC 占位符是 `{{fund_name_N}}`（双花括号），替换后不能残留花括号包裹（如 `{基金名(代码)}`）。
+2. **fund_cards_json 替换坑**：模板中 `const funds = {{fund_cards_json}};`，替换 JSON 数组后不能残留 `{[...]}` 外层花括号——`{[` 会导致 JS 语法错误、悬浮卡片全部静默失效。替换后必须在浏览器验证 `.fund-ref` 数量 > 0 且 hover 后 opacity=1。
+3. 只替换 `{{...}}`，漏掉 `{fund_*}`
+4. fixed-slot 模板静默丢基金
+5. TOC / 卡片 / 摘要表 / `fund_cards_json` 不是从同一份 holdings 派生
+6. 子智能体填模板超时或部分覆盖
+7. hover CSS 恢复了但忘了 JS injection path
+8. 用第一个 `<tbody>` 替换摘要表，误伤 ETF/政策表
 7. **sec-2b 新闻条目结构偏离模板**：必须使用模板定义的 `<div class="news-item"><h4>标题</h4><p class="news-meta">来源：XXX | <a href="URL" target="_blank">原始链接</a></p><p>事实摘要</p><p class="muted">判断用途：✅/⚠️/❌ 利好/中性/利空</p></div>` 四段式结构。禁止自造 `news-date`/`news-body`/`news-tag` 等非模板 class，禁止省略来源和链接，禁止把标题/内容/判断压成一行。
 8. **市场量能表"亿"重复 bug**：模板中 `{{market_turnover_total}} 亿` 已含"亿"后缀，填充数据值时不能再追加"亿"。正确：`{{market_turnover_total}}` 填 `20,500`，模板自带 ` 亿`。错误：填 `20,500 亿`，结果 `20,500 亿 亿`。同理 `{{northbound_net_flow}}`、`{{margin_balance_total}}` 均不能在数据值中包含"亿"字。
 9. **ETF 走向表必须 4 列 + 行类着色**：表头必须是 `ETF(代码) | 来源 | 前一交易日涨跌幅 | 对应持仓/备注`。每行 `<tr>` 必须根据涨跌加 `class="etf-up"`/`class="etf-down"`/`class="etf-flat"`。禁止丢"来源"列、禁止丢行类。来源填 `relevant` 或 `core`。
