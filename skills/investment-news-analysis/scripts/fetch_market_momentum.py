@@ -1,6 +1,7 @@
 import argparse
 import json
 import re
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -810,85 +811,71 @@ def get_hs_margin_summary(as_of_date):
 
 
 def get_market_turnover_summary(as_of_date):
-    """获取沪深两市前一交易日总成交额，用于与北向、两融对比评估市场整体量能。"""
+    """获取前一交易日沪深京A股成交额，拒绝跨日期拼接交易所数据。"""
     try:
         cutoff_date = get_prior_day_cutoff(as_of_date)
-
-        sh_amount_yi = None
-        sh_volume_yi = None
-        actual_date = None
-
-        for offset in range(6):
-            check_date = cutoff_date - timedelta(days=offset)
-            date_str = check_date.strftime("%Y%m%d")
+        date_str = cutoff_date.strftime("%Y%m%d")
+        params = {
+            "secid": "47.800004",
+            "klt": "101",
+            "fqt": "0",
+            "beg": date_str,
+            "end": date_str,
+            "fields1": "f1,f2,f3,f4,f5,f6",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+        }
+        response = None
+        last_error = None
+        for attempt in range(3):
             try:
-                sh_df = ak.stock_sse_deal_daily(date=date_str)
-                if sh_df is not None and not sh_df.empty:
-                    amount_row = sh_df[sh_df["单日情况"] == "成交金额"]
-                    if not amount_row.empty:
-                        sh_amount_yi = safe_float(amount_row.iloc[0]["股票"], 2)
-                    volume_row = sh_df[sh_df["单日情况"] == "成交量"]
-                    if not volume_row.empty:
-                        sh_volume_yi = safe_float(volume_row.iloc[0]["股票"], 2)
-                    if sh_amount_yi is not None:
-                        actual_date = str(check_date)
-                        break
-            except Exception:
-                continue
+                response = requests.get(
+                    "https://push2his.eastmoney.com/api/qt/stock/kline/get",
+                    params=params,
+                    timeout=20,
+                )
+                response.raise_for_status()
+                break
+            except requests.RequestException as exc:
+                last_error = exc
+                if attempt == 2:
+                    raise
+                time.sleep(attempt + 1)
+        if response is None:
+            raise last_error or RuntimeError("东方财富全A日线请求未返回响应")
+        data = response.json().get("data") or {}
+        if data.get("code") != "800004" or data.get("market") != 47:
+            raise ValueError("东方财富全A(沪深京)指数标识校验失败")
+        if data.get("name") != "东方财富全A(沪深京)":
+            raise ValueError("东方财富全A(沪深京)指数名称校验失败")
 
-        if sh_amount_yi is None:
+        klines = data.get("klines") or []
+        if len(klines) != 1:
             return {
                 "status": "not_found",
                 "requested_as_of_date": as_of_date,
                 "cutoff_date": str(cutoff_date),
-                "note": "上交所每日成交概况在回溯5天内无可用数据。",
+                "market_scope": "沪深京A股",
+                "note": "东方财富全A(沪深京)日线未返回目标交易日。",
             }
 
-        sz_amount_yi = None
-        sz_volume_yi = None
-        sz_actual_date = None
-        for offset in range(6):
-            check_date = cutoff_date - timedelta(days=offset)
-            date_str = check_date.strftime("%Y%m%d")
-            try:
-                sz_df = ak.stock_szse_summary(date=date_str)
-                if sz_df is not None and not sz_df.empty:
-                    stock_row = sz_df[sz_df["证券类别"] == "股票"]
-                    if not stock_row.empty:
-                        sz_amount_raw = safe_float(stock_row.iloc[0]["成交金额"])
-                        if sz_amount_raw is not None:
-                            sz_amount_yi = round(sz_amount_raw / 1e8, 2)
-                            sz_actual_date = str(check_date)
-                            break
-            except Exception:
-                continue
-
-        total_amount_yi = None
-        if sh_amount_yi is not None and sz_amount_yi is not None:
-            total_amount_yi = round(sh_amount_yi + sz_amount_yi, 2)
-
-        total_volume_yi = None
-        if sh_volume_yi is not None and sz_volume_yi is not None:
-            total_volume_yi = round(sh_volume_yi + sz_volume_yi, 2)
+        fields = klines[0].split(",")
+        if len(fields) < 7 or fields[0] != str(cutoff_date):
+            raise ValueError("东方财富全A(沪深京)日线日期或字段格式异常")
+        turnover_raw = safe_float(fields[6])
+        if turnover_raw is None:
+            raise ValueError("东方财富全A(沪深京)日线成交额为空")
 
         return {
             "status": "success",
             "requested_as_of_date": as_of_date,
             "cutoff_date": str(cutoff_date),
-            "date": actual_date,
-            "sh_date": actual_date,
-            "sz_date": sz_actual_date,
-            "sh_turnover_yi": sh_amount_yi,
-            "sh_volume_yi_gu": sh_volume_yi,
-            "sz_turnover_yi": sz_amount_yi,
-            "sz_volume_yi_gu": sz_volume_yi,
-            "total_turnover_yi": total_amount_yi,
-            "total_volume_yi_gu": total_volume_yi,
-            "source": {
-                "sh": "akshare.stock_sse_deal_daily",
-                "sz": "akshare.stock_szse_summary",
-            },
-            "note": "两市股票成交额来自交易所官方每日统计；用于与北向资金、两融余额对比评估市场整体量能。",
+            "date": fields[0],
+            "market_scope": "沪深京A股",
+            "total_turnover_yi": round(turnover_raw / 1e8, 2),
+            "total_volume_shou": safe_float(fields[5]),
+            "source": "Eastmoney 800004 东方财富全A(沪深京) 日线",
+            "source_url": "https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=47.800004",
+            "note": "成交额为东方财富全A(沪深京)指数日线字段，单位由元换算为亿元；单一同日全市场口径，不再拼接沪深交易所跨日数据。",
         }
     except Exception as exc:
         return {"status": "error", "requested_as_of_date": as_of_date, "message": str(exc)}
