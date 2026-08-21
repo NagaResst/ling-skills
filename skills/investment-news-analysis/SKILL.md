@@ -86,7 +86,19 @@ HTML 投资建议报告的唯一结构规范与唯一页面骨架。两者必须
 
 ### B. 再跑定量脚本
 
-先运行 `scripts/fetch_market_momentum.py`。
+先完成本小节的**量能前置取数**，再且只运行一次 `scripts/fetch_market_momentum.py`。
+
+#### 量能前置取数（脚本前置，不属于阶段二的政策/市场/宏观新闻搜索）
+
+在分析日当天，主 agent 必须实际访问一篇**前一交易日收评原文**，并记录其原始 URL，作为全A（沪深京）成交额的同日回退输入。原文必须同时明确：
+
+1. 前一交易日日期；
+2. `沪深京三市`（或等价的全A沪深京）口径；
+3. 成交总额数值与单位。
+
+这一步是定量数据的来源预检，不得等脚本报错后才临时搜索，也不得拿搜索摘要、盘中快讯、当日实时行情或跨市场加总充数。准备好 URL 后，首次且唯一一次脚本运行同时传入它；脚本优先查询 `800004` 历史日线，只有主源不可用时才解析该原文，并在**正文自身**的日期、口径、金额三项均匹配时接受。
+
+若两条同日路径都不可验证，脚本会中止；**不得省略量能字段、不得第二次运行脚本补参数、不得生成日报或 HTML**。这保证交付物不会带着“数据缺失”继续流转，而不是虚构“网络一定不会失败”。
 
 统一口径：
 
@@ -98,7 +110,11 @@ HTML 投资建议报告的唯一结构规范与唯一页面骨架。两者必须
 推荐调用方式：
 
 ```bash
-python3 skills/investment-news-analysis/scripts/fetch_market_momentum.py --date YYYY-MM-DD --output 投资新闻归档/YYYY-MM/YYYY-MM-DD/raw_data/market_momentum_YYYY-MM-DD.json
+python3 .github/skills/investment-news-analysis/scripts/fetch_market_momentum.py \
+	--date YYYY-MM-DD \
+	--holdings-file 投资者行动/持仓情况.md \
+	--market-turnover-report-url "已实际访问并验证的前一交易日收评原文URL" \
+	--output 投资新闻归档/YYYY-MM/YYYY-MM-DD/raw_data/market_momentum_YYYY-MM-DD.json
 ```
 
 执行上面命令后，脚本会在同一 `raw_data/` 目录**同时写出**：
@@ -182,7 +198,7 @@ python3 skills/investment-news-analysis/scripts/fetch_market_momentum.py --date 
 4. **ETF 数据分两组**：`relevant_etf_daily` 和 `core_industry_etf_daily`，不是 `etf_daily`（该字段为空字典）。
 5. **analysis_snapshot vs holding_valuation_snapshot**：做调仓计算时优先使用 `analysis_snapshot`，因为它有 `full` 和 `holding_weight_pct` 等便利字段。
 6. **持仓文件解析**：`fetch_market_momentum.py` 要求持仓文件为扁平 `key: value` 格式。购入时间嵌套格式会导致解析器静默截断。始终显式传入 `--holdings-file`。
-7. **市场量能总览**：`market_turnover_summary` 字段含全A（沪深京）成交额，来自东方财富全A(沪深京)指数 `800004` 的同日日线成交额字段（原始单位元，已换算为亿元）；禁止再将上交所与深交所不同日期的统计数据相加。`hs_margin_summary` 字段含全市场融资融券余额，来自 `stock_margin_account_info`（含沪深+北交所，单位亿元）；该字段同时输出 `margin_balance_change_yi`（与前一交易日融资余额变动，单位亿元）和 `margin_balance_change_pct`（变动百分比），用于日报和 HTML 报告中"对比昨日"备注列。与 `northbound_daily_raw` 三者搭配可评估市场整体量能。日报和 HTML 报告中均需展示这三项指标的对比表。
+7. **市场量能总览**：`market_turnover_summary` 字段含全A（沪深京）成交额，主源为东方财富全A(沪深京)指数 `800004` 的前一交易日日线字段（原始单位元，已换算为亿元）；禁止再将上交所与深交所不同日期的统计数据相加。分析脚本只在**分析当天**对历史 `800004` 源发起一次请求；**不得依赖前一交易日收盘任务或重试**。首次脚本运行前，主 agent 必须已实际访问并传入一篇前一交易日收评原文 URL；主源不可用时，脚本只在原文正文自身同时匹配目标日期、`沪深京三市` 和成交总额时接受该数据，禁止使用搜索摘要、盘中实时值或跨市场拼接。两条同日路径均未取得可验证数值时，脚本必须中止，禁止生成含“数据缺失”的日报。`northbound_daily_raw` 必须读取东财 `006` 北向汇总行的 `NET_DEAL_AMT`；仅在 `006` 缺失时以 `002+004` 同日相加，禁止读取没有净流入字段的 `005` 行。`hs_margin_summary` 字段含全市场融资融券余额，来自 `stock_margin_account_info`（含沪深+北交所，单位亿元）；该字段同时输出 `margin_balance_change_yi`（与前一交易日融资余额变动，单位亿元）和 `margin_balance_change_pct`（变动百分比），用于日报和 HTML 报告中"对比昨日"备注列。与 `northbound_daily_raw` 三者搭配可评估市场整体量能。日报和 HTML 报告中均需展示这三项指标的对比表。
 8. **item_summaries 归档边界**：北向资金、融资余额、成交额等脚本定量数据不创建 item_summary。这些数据已在 `raw_data/market_momentum_YYYY-MM-DD.json` 中，在日报第四章展示即可。把它们当作"新闻条目"归档会挤占真正新闻的位置。
 
 ### 网络搜索补充的可靠性
@@ -291,14 +307,15 @@ HTML 的生成方法、模板扩展、hover 卡片处理等实现细节，统一
 
 1. 读取投资者画像。
 2. 读取历史 summary、最新持仓。
-3. 运行 `fetch_market_momentum.py`。
-4. 准备当天 `raw_data/finance_news.json`。
-5. 按主链路完成政策、市场行情与量级、宏观搜索，再决定是否补基金本身信息。
-6. 分层搜索并即时归档。
-7. 执行信息充分性检查。
-8. 生成每日 summary。
-9. 生成投资建议 HTML 页面。
-10. **执行 [delivery-checklist.md](reference/delivery-checklist.md) 全部检查项**，违规数 = 0 方可交付。
+3. 在分析日实际访问并验证前一交易日的沪深京三市收评原文 URL。
+4. 带 `--market-turnover-report-url`、`--holdings-file` 运行一次 `fetch_market_momentum.py`；任何必需量能字段未取到即停止。
+5. 准备当天 `raw_data/finance_news.json`。
+6. 按主链路完成政策、市场行情与量级、宏观搜索，再决定是否补基金本身信息。
+7. 分层搜索并即时归档。
+8. 执行信息充分性检查。
+9. 生成每日 summary。
+10. 生成投资建议 HTML 页面。
+11. **执行 [delivery-checklist.md](reference/delivery-checklist.md) 全部检查项**，违规数 = 0 方可交付。
 
 ---
 

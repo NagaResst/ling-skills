@@ -1,7 +1,7 @@
 import argparse
 import json
+import math
 import re
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -14,7 +14,7 @@ from py_mini_racer import MiniRacer
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path.cwd()
 DEFAULT_HOLDINGS_FILE = ROOT / "投资者行动" / "持仓情况.md"
 ADVICE_REPORT_DIR = ROOT / "投资者行动" / "持仓分析与建议"
 ARCHIVE_DIR = ROOT / "投资新闻归档"
@@ -69,8 +69,14 @@ HOLDING_RELEVANT_ETFS = {
 }
 
 EASTMONEY_MUTUAL_HISTORY_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+EASTMONEY_FUND_NAV_URL = "https://api.fund.eastmoney.com/f10/lsjz"
 NORTHBOUND_WEEKLY_COMPONENT_TYPES = ("002", "004")
 NORTHBOUND_WEEKLY_AGGREGATE_TYPE = "006"
+MARKET_TURNOVER_SCOPE = "沪深京A股"
+
+
+class RequiredQuantitativeDataUnavailable(RuntimeError):
+    """Required daily market data was neither fetched nor found in a verified local snapshot."""
 
 
 def parse_args():
@@ -82,14 +88,18 @@ def parse_args():
         help="持仓文件路径，默认读取 投资者行动/持仓情况.md",
     )
     parser.add_argument("--output", help="输出 JSON 文件路径；不传则打印到 stdout")
+    parser.add_argument(
+        "--market-turnover-report-url",
+        help="当800004历史日线不可用时，传入当天检索到的前一交易日收评原文URL；正文必须通过日期、沪深京范围和成交额校验。",
+    )
     return parser.parse_args()
 
 
 def load_holdings_from_markdown(file_path):
     text = Path(file_path).read_text(encoding="utf-8")
     in_funds_section = False
-    funds = []
-    current = None
+    funds: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
 
     for raw_line in text.splitlines():
         line = raw_line.rstrip()
@@ -159,6 +169,16 @@ def safe_int(value):
     return int(numeric)
 
 
+def sanitize_for_json(value):
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: sanitize_for_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [sanitize_for_json(item) for item in value]
+    return value
+
+
 def nearly_equal(left, right, tolerance=1e-6):
     if left is None or right is None:
         return False
@@ -170,6 +190,13 @@ def normalize_amount_text(amount_text):
         return None
     cleaned = str(amount_text).replace(",", "").replace("元", "").strip()
     return safe_float(cleaned, 2)
+
+
+def normalize_nav_text(nav_text):
+    if nav_text is None:
+        return None
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", str(nav_text))
+    return safe_float(match.group(0), 4) if match else None
 
 
 def get_prior_day_cutoff(as_of_date):
@@ -210,7 +237,7 @@ def extract_report_holdings(report_path):
     )
 
     for match in legacy_pattern.finditer(text):
-        nav = safe_float(match.group("nav"), 4)
+        nav = normalize_nav_text(match.group("nav"))
         amount = normalize_amount_text(match.group("amount"))
         shares = None
         if nav not in (None, 0) and amount is not None:
@@ -240,7 +267,7 @@ def extract_report_holdings(report_path):
         return results
 
     for item in payload:
-        nav = safe_float(item.get("nav"), 4)
+        nav = normalize_nav_text(item.get("nav"))
         amount = normalize_amount_text(item.get("amount"))
         shares = None
         if nav not in (None, 0) and amount is not None:
@@ -502,6 +529,9 @@ def build_holdings_change_summary(current_holdings, previous_context, fund_navs)
     for code in sorted(set(current_map) | set(previous_map)):
         current_item = current_map.get(code)
         previous_item = previous_map.get(code)
+        source_item = current_item or previous_item
+        if source_item is None:
+            continue
         current_shares = safe_float(current_item.get("shares"), 2) if current_item else 0.0
         previous_shares = safe_float(previous_item.get("shares"), 2) if previous_item else 0.0
         current_shares = current_shares if current_shares is not None else 0.0
@@ -554,7 +584,7 @@ def build_holdings_change_summary(current_holdings, previous_context, fund_navs)
         changes.append(
             {
                 "code": code,
-                "name": (current_item or previous_item).get("name"),
+                "name": source_item.get("name"),
                 "change_type": change_type,
                 "previous_shares": previous_shares,
                 "current_shares": current_shares,
@@ -583,7 +613,7 @@ def build_holdings_change_summary(current_holdings, previous_context, fund_navs)
 
 
 def get_northbound_daily_raw(as_of_date, lookback_days=7):
-    """返回分析日之前最近一个交易日的北向原始字段，同时写出联网交叉验证后的单位换算。"""
+    """读取东财006北向汇总行；006缺失时才以002和004同日相加。"""
     try:
         cutoff_date = get_prior_day_cutoff(as_of_date)
         start_date = cutoff_date - timedelta(days=lookback_days - 1)
@@ -598,26 +628,60 @@ def get_northbound_daily_raw(as_of_date, lookback_days=7):
         frame = frame[
             (frame["TRADE_DATE"] >= pd.Timestamp(start_date))
             & (frame["TRADE_DATE"] <= pd.Timestamp(cutoff_date))
-            & (frame["MUTUAL_TYPE"].astype(str) == "005")
         ].copy()
         if frame.empty:
             return {"status": "not_found", "requested_as_of_date": as_of_date, "cutoff_date": str(cutoff_date)}
 
-        frame = frame.sort_values(by="TRADE_DATE", ascending=False)
-        row = frame.iloc[0].to_dict()
-        if row is None:
-            return {"status": "not_found", "requested_as_of_date": as_of_date, "cutoff_date": str(cutoff_date)}
-        deal_amt_raw = row.get("DEAL_AMT")
-        net_deal_amt_raw = row.get("NET_DEAL_AMT")
-        buy_amt_raw = row.get("BUY_AMT")
-        sell_amt_raw = row.get("SELL_AMT")
+        aggregate = frame[frame["MUTUAL_TYPE"].astype(str) == NORTHBOUND_WEEKLY_AGGREGATE_TYPE].copy()
+        source = "Eastmoney RPT_MUTUAL_DEAL_HISTORY 006 北向汇总"
+        mutual_type = NORTHBOUND_WEEKLY_AGGREGATE_TYPE
+        if aggregate.empty:
+            components = frame[frame["MUTUAL_TYPE"].astype(str).isin(NORTHBOUND_WEEKLY_COMPONENT_TYPES)].copy()
+            if components.empty:
+                return {
+                    "status": "not_found",
+                    "requested_as_of_date": as_of_date,
+                    "cutoff_date": str(cutoff_date),
+                    "note": "东财窗口内既无006北向汇总，也无002和004组成行。",
+                }
+            latest_date = components["TRADE_DATE"].max()
+            aggregate = components[components["TRADE_DATE"] == latest_date].copy()
+            for column in ["DEAL_AMT", "NET_DEAL_AMT", "BUY_AMT", "SELL_AMT"]:
+                aggregate[column] = pd.to_numeric(aggregate[column], errors="coerce")
+            row = aggregate[["DEAL_AMT", "NET_DEAL_AMT", "BUY_AMT", "SELL_AMT"]].sum(min_count=1).to_dict()
+            row["TRADE_DATE"] = latest_date
+            source = "Eastmoney RPT_MUTUAL_DEAL_HISTORY 002+004 同日合计"
+            mutual_type = "+".join(NORTHBOUND_WEEKLY_COMPONENT_TYPES)
+        else:
+            aggregate = aggregate.sort_values(by="TRADE_DATE", ascending=False)
+            row = aggregate.iloc[0].to_dict()
+
+        trade_date = row.get("TRADE_DATE")
+        if trade_date is None or pd.isna(trade_date):
+            return {
+                "status": "not_found",
+                "requested_as_of_date": as_of_date,
+                "cutoff_date": str(cutoff_date),
+                "note": "北向汇总记录缺少TRADE_DATE。",
+            }
+        deal_amt_raw = safe_float(row.get("DEAL_AMT"), 2)
+        net_deal_amt_raw = safe_float(row.get("NET_DEAL_AMT"), 2)
+        buy_amt_raw = safe_float(row.get("BUY_AMT"), 2)
+        sell_amt_raw = safe_float(row.get("SELL_AMT"), 2)
+        if net_deal_amt_raw is None:
+            return {
+                "status": "not_found",
+                "requested_as_of_date": as_of_date,
+                "cutoff_date": str(cutoff_date),
+                "note": "北向汇总记录缺少NET_DEAL_AMT，拒绝以成交额代替净流入。",
+            }
         return {
-            "status": "raw_record_available",
+            "status": "success",
             "requested_as_of_date": as_of_date,
             "cutoff_date": str(cutoff_date),
-            "date": str(pd.Timestamp(row.get("TRADE_DATE")).date()),
+            "date": str(pd.Timestamp(trade_date).date()),
             "report_name": "RPT_MUTUAL_DEAL_HISTORY",
-            "mutual_type": "005",
+            "mutual_type": mutual_type,
             "deal_amt_raw": deal_amt_raw,
             "net_deal_amt_raw": net_deal_amt_raw,
             "buy_amt_raw": buy_amt_raw,
@@ -629,11 +693,12 @@ def get_northbound_daily_raw(as_of_date, lookback_days=7):
             "net_deal_amt_yi_if_raw_unit_is_million": raw_amount_to_yi_if_million(net_deal_amt_raw),
             "buy_amt_yi_if_raw_unit_is_million": raw_amount_to_yi_if_million(buy_amt_raw),
             "sell_amt_yi_if_raw_unit_is_million": raw_amount_to_yi_if_million(sell_amt_raw),
+            "source": source,
             "unit_validation_basis": [
                 "AkShare 在线文档把 stock_hsgt_hist_em 的成交额相关字段标注为亿元。",
                 "AkShare 远端源码 stock_hsgt_hist_em 对 RPT_MUTUAL_DEAL_HISTORY 的 NET_DEAL_AMT / BUY_AMT / SELL_AMT 做了 /100 后输出为亿元。",
             ],
-            "note": "响应行本身没有给数值单位打标签，但联网交叉验证后可按百万元理解；例如 DEAL_AMT=358681.44 时，对应约 3586.81 亿元。",
+            "note": "006是北向净流入汇总行；仅在006缺失时使用002和004同日合计。数值按百万元换算为亿元。",
         }
     except Exception as exc:
         return {"status": "error", "requested_as_of_date": as_of_date, "message": str(exc)}
@@ -810,38 +875,83 @@ def get_hs_margin_summary(as_of_date):
         return {"status": "error", "requested_as_of_date": as_of_date, "message": str(exc)}
 
 
-def get_market_turnover_summary(as_of_date):
-    """获取前一交易日沪深京A股成交额，拒绝跨日期拼接交易所数据。"""
+def get_market_turnover_from_report(cutoff_date, source_url):
+    """从前一交易日收评原文提取沪深京三市成交总额，拒绝搜索摘要或日期不符的文章。"""
+    if not source_url:
+        return None
     try:
-        cutoff_date = get_prior_day_cutoff(as_of_date)
+        response = requests.get(
+            source_url,
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.qq.com/"},
+            timeout=20,
+            verify=False,
+        )
+        response.raise_for_status()
+        text = response.text
+        date_tokens = {
+            cutoff_date.strftime("%Y-%m-%d"),
+            f"{cutoff_date.year}年{cutoff_date.month}月{cutoff_date.day}日",
+        }
+        if not any(token in text for token in date_tokens):
+            raise ValueError(f"收评原文未验证到目标日期 {cutoff_date}")
+
+        match = re.search(
+            r"沪深京三市(?:今日)?成交(?:总额|额)\s*(?:为|达|约)?\s*([0-9]+(?:\.[0-9]+)?)\s*(万亿|亿元)",
+            text,
+        )
+        if not match:
+            raise ValueError("收评原文未找到沪深京三市成交总额")
+        turnover_yi = float(match.group(1)) * (10000 if match.group(2) == "万亿" else 1)
+        if not 1000 <= turnover_yi <= 100000:
+            raise ValueError(f"收评成交额超出合理区间: {turnover_yi}亿元")
+        return {
+            "status": "success",
+            "requested_as_of_date": str(cutoff_date + timedelta(days=1)),
+            "cutoff_date": str(cutoff_date),
+            "date": str(cutoff_date),
+            "market_scope": MARKET_TURNOVER_SCOPE,
+            "total_turnover_yi": round(turnover_yi, 2),
+            "source": "前一交易日收评原文回退",
+            "source_url": source_url,
+            "note": "原始800004历史日线不可用时使用；正文已同时校验目标日期、沪深京三市范围和成交总额。",
+        }
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "cutoff_date": str(cutoff_date),
+            "market_scope": MARKET_TURNOVER_SCOPE,
+            "message": f"收评原文回退失败: {exc}",
+        }
+
+
+def get_market_turnover_summary(as_of_date, fallback_report_url=None):
+    """获取前一交易日沪深京A股成交额；只接受精确同日全口径记录。"""
+    cutoff_date = get_prior_day_cutoff(as_of_date)
+
+    try:
         date_str = cutoff_date.strftime("%Y%m%d")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://quote.eastmoney.com/",
+            "Connection": "close",
+        }
         params = {
             "secid": "47.800004",
             "klt": "101",
             "fqt": "0",
             "beg": date_str,
             "end": date_str,
+            "ut": "fa5fd1943c7b386f172d6893dbfba10b",
             "fields1": "f1,f2,f3,f4,f5,f6",
             "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
         }
-        response = None
-        last_error = None
-        for attempt in range(3):
-            try:
-                response = requests.get(
-                    "https://push2his.eastmoney.com/api/qt/stock/kline/get",
-                    params=params,
-                    timeout=20,
-                )
-                response.raise_for_status()
-                break
-            except requests.RequestException as exc:
-                last_error = exc
-                if attempt == 2:
-                    raise
-                time.sleep(attempt + 1)
-        if response is None:
-            raise last_error or RuntimeError("东方财富全A日线请求未返回响应")
+        response = requests.get(
+            "https://push2his.eastmoney.com/api/qt/stock/kline/get",
+            headers=headers,
+            params=params,
+            timeout=20,
+        )
+        response.raise_for_status()
         data = response.json().get("data") or {}
         if data.get("code") != "800004" or data.get("market") != 47:
             raise ValueError("东方财富全A(沪深京)指数标识校验失败")
@@ -850,13 +960,7 @@ def get_market_turnover_summary(as_of_date):
 
         klines = data.get("klines") or []
         if len(klines) != 1:
-            return {
-                "status": "not_found",
-                "requested_as_of_date": as_of_date,
-                "cutoff_date": str(cutoff_date),
-                "market_scope": "沪深京A股",
-                "note": "东方财富全A(沪深京)日线未返回目标交易日。",
-            }
+            raise ValueError("东方财富全A(沪深京)日线未返回目标交易日")
 
         fields = klines[0].split(",")
         if len(fields) < 7 or fields[0] != str(cutoff_date):
@@ -870,7 +974,7 @@ def get_market_turnover_summary(as_of_date):
             "requested_as_of_date": as_of_date,
             "cutoff_date": str(cutoff_date),
             "date": fields[0],
-            "market_scope": "沪深京A股",
+            "market_scope": MARKET_TURNOVER_SCOPE,
             "total_turnover_yi": round(turnover_raw / 1e8, 2),
             "total_volume_shou": safe_float(fields[5]),
             "source": "Eastmoney 800004 东方财富全A(沪深京) 日线",
@@ -878,7 +982,19 @@ def get_market_turnover_summary(as_of_date):
             "note": "成交额为东方财富全A(沪深京)指数日线字段，单位由元换算为亿元；单一同日全市场口径，不再拼接沪深交易所跨日数据。",
         }
     except Exception as exc:
-        return {"status": "error", "requested_as_of_date": as_of_date, "message": str(exc)}
+        report_fallback = get_market_turnover_from_report(cutoff_date, fallback_report_url)
+        if report_fallback and report_fallback.get("status") == "success":
+            report_fallback["primary_failure"] = str(exc)
+            return report_fallback
+        return {
+            "status": "unavailable",
+            "requested_as_of_date": as_of_date,
+            "cutoff_date": str(cutoff_date),
+            "market_scope": MARKET_TURNOVER_SCOPE,
+            "message": str(exc),
+            "fallback_report_failure": (report_fallback or {}).get("message"),
+            "note": "800004主源单次请求失败，且没有通过校验的前一交易日收评原文；拒绝以跨市场拼接、盘中实时值或搜索摘要替代。",
+        }
 
 
 def get_sina_etf_history(symbol):
@@ -1164,31 +1280,63 @@ def build_relevant_etf_daily(as_of_date, core_industry_etf_daily):
     return results
 
 
+def get_eastmoney_fund_nav(code, cutoff_date):
+    response = requests.get(
+        EASTMONEY_FUND_NAV_URL,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://fundf10.eastmoney.com/",
+        },
+        params={
+            "fundCode": code,
+            "pageIndex": "1",
+            "pageSize": "20",
+            "startDate": "",
+            "endDate": "",
+        },
+        timeout=20,
+    )
+    response.raise_for_status()
+    payload = response.json() or {}
+    if payload.get("ErrCode") not in (0, "0", None):
+        raise ValueError(f"Eastmoney F10 error: {payload.get('ErrCode')}")
+
+    rows = ((payload.get("Data") or {}).get("LSJZList")) or []
+    candidates = []
+    for row in rows:
+        nav_date = pd.to_datetime(row.get("FSRQ"), errors="coerce")
+        official_nav = safe_float(row.get("DWJZ"), 4)
+        if pd.isna(nav_date) or official_nav is None:
+            continue
+        nav_date = nav_date.date()
+        if nav_date <= cutoff_date:
+            candidates.append((nav_date, official_nav))
+
+    if not candidates:
+        raise ValueError(f"Eastmoney F10 has no official NAV on or before {cutoff_date}")
+
+    nav_date, official_nav = max(candidates, key=lambda item: item[0])
+    return official_nav, nav_date
+
+
 def get_fund_nav_batch(holdings):
     results = []
     for item in holdings:
         code = item["code"]
+        cutoff_date = get_prior_day_cutoff(item["as_of_date"])
+        primary_failure = None
         try:
             df_hist = ak.fund_open_fund_info_em(symbol=code, indicator="单位净值走势")
             if df_hist.empty:
-                results.append({"code": code, "name": item["name"], "status": "empty"})
-                continue
+                primary_failure = "AkShare returned an empty NAV history"
+                raise ValueError(primary_failure)
 
-            cutoff_date = get_prior_day_cutoff(item["as_of_date"])
             df_hist = df_hist.copy()
             df_hist["净值日期"] = pd.to_datetime(df_hist["净值日期"], errors="coerce").dt.date
             eligible = df_hist[df_hist["净值日期"] <= cutoff_date]
             if eligible.empty:
-                results.append(
-                    {
-                        "code": code,
-                        "name": item["name"],
-                        "status": "date_not_found",
-                        "requested_as_of_date": item["as_of_date"],
-                        "cutoff_date": str(cutoff_date),
-                    }
-                )
-                continue
+                primary_failure = f"AkShare has no official NAV on or before {cutoff_date}"
+                raise ValueError(primary_failure)
 
             last_nav_row = eligible.iloc[-1]
             results.append(
@@ -1200,14 +1348,54 @@ def get_fund_nav_batch(holdings):
                     "cutoff_date": str(cutoff_date),
                     "official_nav": float(last_nav_row["单位净值"]),
                     "nav_date": str(last_nav_row["净值日期"]),
+                    "source": "AkShare fund_open_fund_info_em",
                 }
             )
         except Exception as exc:
-            results.append({"code": code, "name": item["name"], "status": "error", "message": str(exc)})
+            primary_failure = primary_failure or str(exc)
+            try:
+                official_nav, nav_date = get_eastmoney_fund_nav(code, cutoff_date)
+                results.append(
+                    {
+                        "code": code,
+                        "name": item["name"],
+                        "status": "success",
+                        "requested_as_of_date": item["as_of_date"],
+                        "cutoff_date": str(cutoff_date),
+                        "official_nav": official_nav,
+                        "nav_date": str(nav_date),
+                        "source": "Eastmoney F10 LSJZ fallback",
+                        "primary_failure": primary_failure,
+                    }
+                )
+            except Exception as fallback_exc:
+                results.append(
+                    {
+                        "code": code,
+                        "name": item["name"],
+                        "status": "error",
+                        "message": f"AkShare failed: {primary_failure}; Eastmoney fallback failed: {fallback_exc}",
+                    }
+                )
     return results
 
 
-def build_payload(as_of_date, holdings_file):
+def require_daily_market_data(payload):
+    """Prevent a daily report from being produced with missing mandatory market facts."""
+    required_fields = {
+        "northbound_daily_raw": "北向单日净流入",
+        "market_turnover_summary": "全A（沪深京）成交额",
+    }
+    unavailable = []
+    for field, label in required_fields.items():
+        result = payload.get(field) or {}
+        if result.get("status") != "success":
+            unavailable.append(f"{label}: {result.get('message') or result.get('note') or result.get('status')}")
+    if unavailable:
+        raise RequiredQuantitativeDataUnavailable("；".join(unavailable))
+
+
+def build_payload(as_of_date, holdings_file, market_turnover_report_url=None):
     holdings = load_holdings_from_markdown(holdings_file)
     previous_report_context = load_previous_report_context(as_of_date)
     holdings_for_nav = merge_holdings_for_nav(holdings, previous_report_context)
@@ -1221,7 +1409,7 @@ def build_payload(as_of_date, holdings_file):
         previous_context=previous_report_context,
         fund_navs=fund_official_navs,
     )
-    return {
+    payload = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "as_of_date": as_of_date,
         "day_level_cutoff_date": str(get_prior_day_cutoff(as_of_date)),
@@ -1232,7 +1420,10 @@ def build_payload(as_of_date, holdings_file):
         "northbound_daily_raw": get_northbound_daily_raw(as_of_date),
         "northbound_weekly_summary": get_northbound_weekly_summary(as_of_date=as_of_date),
         "hs_margin_summary": get_hs_margin_summary(as_of_date),
-        "market_turnover_summary": get_market_turnover_summary(as_of_date),
+        "market_turnover_summary": get_market_turnover_summary(
+            as_of_date,
+            fallback_report_url=market_turnover_report_url,
+        ),
         "core_industry_etf_daily": core_industry_etf_daily,
         "sw_l2_industry_daily": get_sw_l2_industry_daily(as_of_date),
         "relevant_etf_daily": build_relevant_etf_daily(as_of_date, core_industry_etf_daily),
@@ -1240,13 +1431,21 @@ def build_payload(as_of_date, holdings_file):
         "holding_valuation_snapshot": holding_valuation_snapshot,
         "holdings_change_vs_previous_report": holdings_change_vs_previous_report,
     }
+    require_daily_market_data(payload)
+    return payload
 
 
 def main():
     args = parse_args()
-    payload = build_payload(as_of_date=args.date, holdings_file=args.holdings_file)
+    payload = sanitize_for_json(
+        build_payload(
+            as_of_date=args.date,
+            holdings_file=args.holdings_file,
+            market_turnover_report_url=args.market_turnover_report_url,
+        )
+    )
     serialized = json.dumps(payload, ensure_ascii=False, indent=2)
-    analysis_snapshot = build_analysis_snapshot(payload)
+    analysis_snapshot = sanitize_for_json(build_analysis_snapshot(payload))
     analysis_snapshot_serialized = json.dumps(analysis_snapshot, ensure_ascii=False, indent=2)
 
     if args.output:
