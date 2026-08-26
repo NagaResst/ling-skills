@@ -88,10 +88,6 @@ def parse_args():
         help="持仓文件路径，默认读取 投资者行动/持仓情况.md",
     )
     parser.add_argument("--output", help="输出 JSON 文件路径；不传则打印到 stdout")
-    parser.add_argument(
-        "--market-turnover-report-url",
-        help="当800004历史日线不可用时，传入当天检索到的前一交易日收评原文URL；正文必须通过日期、沪深京范围和成交额校验。",
-    )
     return parser.parse_args()
 
 
@@ -875,125 +871,136 @@ def get_hs_margin_summary(as_of_date):
         return {"status": "error", "requested_as_of_date": as_of_date, "message": str(exc)}
 
 
-def get_market_turnover_from_report(cutoff_date, source_url):
-    """从前一交易日收评原文提取沪深京三市成交总额，拒绝搜索摘要或日期不符的文章。"""
-    if not source_url:
-        return None
+def get_bse_market_turnover(cutoff_date):
+    """获取北交所同一交易日股票成交额。"""
     try:
-        response = requests.get(
-            source_url,
-            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.qq.com/"},
+        session = requests.Session()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Referer": "https://www.bse.cn/",
+        }
+        challenge_response = session.get(
+            "https://www.bse.cn/",
+            headers=headers,
             timeout=20,
-            verify=False,
+        )
+        challenge_response.raise_for_status()
+        cookie_match = re.search(r"C3VK=([^;]+)", challenge_response.text)
+        if cookie_match:
+            session.cookies.set("C3VK", cookie_match.group(1), domain="www.bse.cn", path="/")
+
+        response = session.get(
+            "https://www.bse.cn/bseHome/index.do",
+            headers=headers,
+            timeout=20,
         )
         response.raise_for_status()
-        text = response.text
-        date_tokens = {
-            cutoff_date.strftime("%Y-%m-%d"),
-            f"{cutoff_date.year}年{cutoff_date.month}月{cutoff_date.day}日",
-        }
-        if not any(token in text for token in date_tokens):
-            raise ValueError(f"收评原文未验证到目标日期 {cutoff_date}")
+        jsonp_match = re.fullmatch(r"\s*(?:[A-Za-z_$][\w$]*|null)\((.*)\)\s*;?\s*", response.text, re.S)
+        if not jsonp_match:
+            raise ValueError("北交所市场总貌接口未返回JSONP数据")
+        market_rows = (json.loads(jsonp_match.group(1)).get("market") or [])
+        if len(market_rows) != 1:
+            raise ValueError("北交所市场总貌接口未返回唯一市场记录")
 
-        match = re.search(
-            r"沪深京三市(?:今日)?成交(?:总额|额)\s*(?:为|达|约)?\s*([0-9]+(?:\.[0-9]+)?)\s*(万亿|亿元)",
-            text,
-        )
-        if not match:
-            raise ValueError("收评原文未找到沪深京三市成交总额")
-        turnover_yi = float(match.group(1)) * (10000 if match.group(2) == "万亿" else 1)
-        if not 1000 <= turnover_yi <= 100000:
-            raise ValueError(f"收评成交额超出合理区间: {turnover_yi}亿元")
+        record = market_rows[0]
+        expected_date = cutoff_date.strftime("%Y%m%d")
+        if str(record.get("rq")) != expected_date:
+            raise ValueError(f"北交所数据日期不匹配: {record.get('rq')} != {expected_date}")
+        turnover_raw_yuan = safe_float(record.get("hqcjje"), 2)
+        if turnover_raw_yuan is None or turnover_raw_yuan < 0:
+            raise ValueError("北交所市场总貌缺少有效成交金额")
         return {
             "status": "success",
-            "requested_as_of_date": str(cutoff_date + timedelta(days=1)),
             "cutoff_date": str(cutoff_date),
             "date": str(cutoff_date),
-            "market_scope": MARKET_TURNOVER_SCOPE,
-            "total_turnover_yi": round(turnover_yi, 2),
-            "source": "前一交易日收评原文回退",
-            "source_url": source_url,
-            "note": "原始800004历史日线不可用时使用；正文已同时校验目标日期、沪深京三市范围和成交总额。",
+            "turnover_yi": round(turnover_raw_yuan / 1e8, 2),
+            "source": "北京证券交易所市场总貌",
+            "source_url": "https://www.bse.cn/bseHome/index.do",
+            "note": "hqcjje 原始单位为元，已换算为亿元。",
         }
     except Exception as exc:
         return {
-            "status": "unavailable",
+            "status": "error",
             "cutoff_date": str(cutoff_date),
-            "market_scope": MARKET_TURNOVER_SCOPE,
-            "message": f"收评原文回退失败: {exc}",
+            "message": str(exc),
         }
 
 
-def get_market_turnover_summary(as_of_date, fallback_report_url=None):
-    """获取前一交易日沪深京A股成交额；只接受精确同日全口径记录。"""
+def get_market_turnover_summary(as_of_date):
+    """汇总沪深京三所同一交易日的 A 股成交额。"""
     cutoff_date = get_prior_day_cutoff(as_of_date)
+    target_date = cutoff_date.strftime("%Y%m%d")
 
     try:
-        date_str = cutoff_date.strftime("%Y%m%d")
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://quote.eastmoney.com/",
-            "Connection": "close",
-        }
-        params = {
-            "secid": "47.800004",
-            "klt": "101",
-            "fqt": "0",
-            "beg": date_str,
-            "end": date_str,
-            "ut": "fa5fd1943c7b386f172d6893dbfba10b",
-            "fields1": "f1,f2,f3,f4,f5,f6",
-            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
-        }
-        response = requests.get(
-            "https://push2his.eastmoney.com/api/qt/stock/kline/get",
-            headers=headers,
-            params=params,
-            timeout=20,
-        )
-        response.raise_for_status()
-        data = response.json().get("data") or {}
-        if data.get("code") != "800004" or data.get("market") != 47:
-            raise ValueError("东方财富全A(沪深京)指数标识校验失败")
-        if data.get("name") != "东方财富全A(沪深京)":
-            raise ValueError("东方财富全A(沪深京)指数名称校验失败")
+        sse_daily = ak.stock_sse_deal_daily(date=target_date)
+        sse_turnover_row = sse_daily.loc[sse_daily["单日情况"] == "成交金额"]
+        if len(sse_turnover_row) != 1:
+            raise ValueError("上交所日度数据缺少唯一的成交金额记录")
+        sse_main_board_yi = safe_float(sse_turnover_row.iloc[0]["主板A"], 2)
+        sse_star_market_yi = safe_float(sse_turnover_row.iloc[0]["科创板"], 2)
+        if sse_main_board_yi is None or sse_star_market_yi is None:
+            raise ValueError("上交所日度数据缺少主板A或科创板成交金额")
 
-        klines = data.get("klines") or []
-        if len(klines) != 1:
-            raise ValueError("东方财富全A(沪深京)日线未返回目标交易日")
+        szse_daily = ak.stock_szse_summary(date=target_date).set_index("证券类别")
+        szse_main_board_yuan = safe_float(szse_daily.loc["主板A股", "成交金额"], 2)
+        szse_growth_board_yuan = safe_float(szse_daily.loc["创业板A股", "成交金额"], 2)
+        if szse_main_board_yuan is None or szse_growth_board_yuan is None:
+            raise ValueError("深交所日度数据缺少主板A股或创业板A股成交金额")
+        szse_main_board_yi = round(szse_main_board_yuan / 1e8, 2)
+        szse_growth_board_yi = round(szse_growth_board_yuan / 1e8, 2)
 
-        fields = klines[0].split(",")
-        if len(fields) < 7 or fields[0] != str(cutoff_date):
-            raise ValueError("东方财富全A(沪深京)日线日期或字段格式异常")
-        turnover_raw = safe_float(fields[6])
-        if turnover_raw is None:
-            raise ValueError("东方财富全A(沪深京)日线成交额为空")
+        bse_daily = get_bse_market_turnover(cutoff_date)
+        if bse_daily.get("status") != "success":
+            raise ValueError(f"北交所日度数据不可用: {bse_daily.get('message')}")
+        bse_turnover_yi = safe_float(bse_daily.get("turnover_yi"), 2)
+        if bse_turnover_yi is None:
+            raise ValueError("北交所日度数据缺少有效成交金额")
+
+        sse_turnover_yi = round(sse_main_board_yi + sse_star_market_yi, 2)
+        szse_turnover_yi = round(szse_main_board_yi + szse_growth_board_yi, 2)
+        total_turnover_yi = round(sse_turnover_yi + szse_turnover_yi + bse_turnover_yi, 2)
 
         return {
             "status": "success",
             "requested_as_of_date": as_of_date,
             "cutoff_date": str(cutoff_date),
-            "date": fields[0],
+            "date": str(cutoff_date),
             "market_scope": MARKET_TURNOVER_SCOPE,
-            "total_turnover_yi": round(turnover_raw / 1e8, 2),
-            "total_volume_shou": safe_float(fields[5]),
-            "source": "Eastmoney 800004 东方财富全A(沪深京) 日线",
-            "source_url": "https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=47.800004",
-            "note": "成交额为东方财富全A(沪深京)指数日线字段，单位由元换算为亿元；单一同日全市场口径，不再拼接沪深交易所跨日数据。",
+            "total_turnover_yi": total_turnover_yi,
+            "source": "沪深京三所官方日度统计（沪深经 AkShare 获取）",
+            "source_urls": {
+                "SH": "https://www.sse.com.cn/market/stockdata/overview/day/",
+                "SZ": "https://www.szse.cn/market/overview/index.html",
+                "BJ": bse_daily["source_url"],
+            },
+            "exchange_breakdown": {
+                "SH": {
+                    "date": str(cutoff_date),
+                    "turnover_yi": sse_turnover_yi,
+                    "components_yi": {"主板A": sse_main_board_yi, "科创板": sse_star_market_yi},
+                },
+                "SZ": {
+                    "date": str(cutoff_date),
+                    "turnover_yi": szse_turnover_yi,
+                    "components_yi": {"主板A股": szse_main_board_yi, "创业板A股": szse_growth_board_yi},
+                },
+                "BJ": {
+                    "date": bse_daily["date"],
+                    "turnover_yi": bse_turnover_yi,
+                },
+            },
+            "note": "三所均按同一目标交易日查询；仅汇总 A 股、科创板和创业板，排除 B 股、基金、债券、期权及股票回购。",
         }
     except Exception as exc:
-        report_fallback = get_market_turnover_from_report(cutoff_date, fallback_report_url)
-        if report_fallback and report_fallback.get("status") == "success":
-            report_fallback["primary_failure"] = str(exc)
-            return report_fallback
         return {
-            "status": "unavailable",
+            "status": "error",
             "requested_as_of_date": as_of_date,
             "cutoff_date": str(cutoff_date),
             "market_scope": MARKET_TURNOVER_SCOPE,
             "message": str(exc),
-            "fallback_report_failure": (report_fallback or {}).get("message"),
-            "note": "800004主源单次请求失败，且没有通过校验的前一交易日收评原文；拒绝以跨市场拼接、盘中实时值或搜索摘要替代。",
+            "note": "三所官方日度统计中任一来源未返回目标交易日的 A 股成交额时，拒绝生成市场量能数据。",
         }
 
 
@@ -1395,7 +1402,7 @@ def require_daily_market_data(payload):
         raise RequiredQuantitativeDataUnavailable("；".join(unavailable))
 
 
-def build_payload(as_of_date, holdings_file, market_turnover_report_url=None):
+def build_payload(as_of_date, holdings_file):
     holdings = load_holdings_from_markdown(holdings_file)
     previous_report_context = load_previous_report_context(as_of_date)
     holdings_for_nav = merge_holdings_for_nav(holdings, previous_report_context)
@@ -1420,10 +1427,7 @@ def build_payload(as_of_date, holdings_file, market_turnover_report_url=None):
         "northbound_daily_raw": get_northbound_daily_raw(as_of_date),
         "northbound_weekly_summary": get_northbound_weekly_summary(as_of_date=as_of_date),
         "hs_margin_summary": get_hs_margin_summary(as_of_date),
-        "market_turnover_summary": get_market_turnover_summary(
-            as_of_date,
-            fallback_report_url=market_turnover_report_url,
-        ),
+        "market_turnover_summary": get_market_turnover_summary(as_of_date),
         "core_industry_etf_daily": core_industry_etf_daily,
         "sw_l2_industry_daily": get_sw_l2_industry_daily(as_of_date),
         "relevant_etf_daily": build_relevant_etf_daily(as_of_date, core_industry_etf_daily),
@@ -1441,7 +1445,6 @@ def main():
         build_payload(
             as_of_date=args.date,
             holdings_file=args.holdings_file,
-            market_turnover_report_url=args.market_turnover_report_url,
         )
     )
     serialized = json.dumps(payload, ensure_ascii=False, indent=2)
