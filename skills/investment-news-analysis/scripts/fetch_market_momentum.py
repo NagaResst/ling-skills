@@ -3,6 +3,7 @@ import json
 import math
 import re
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 
 import akshare as ak
@@ -70,6 +71,13 @@ HOLDING_RELEVANT_ETFS = {
 
 EASTMONEY_MUTUAL_HISTORY_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 EASTMONEY_FUND_NAV_URL = "https://api.fund.eastmoney.com/f10/lsjz"
+SSE_DAILY_SUMMARY_URL = "https://query.sse.com.cn/commonQuery.do"
+SSE_DAILY_SUMMARY_SQL_ID = "COMMON_SSE_SJ_GPSJ_CJGK_MRGK_C"
+SSE_DAILY_SUMMARY_HEADERS = {
+    "Referer": "https://www.sse.com.cn/",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/89.0.4389.90 Safari/537.36",
+}
 NORTHBOUND_WEEKLY_COMPONENT_TYPES = ("002", "004")
 NORTHBOUND_WEEKLY_AGGREGATE_TYPE = "006"
 MARKET_TURNOVER_SCOPE = "沪深京A股"
@@ -100,24 +108,28 @@ def load_holdings_from_markdown(file_path):
     for raw_line in text.splitlines():
         line = raw_line.rstrip()
         stripped = line.strip()
+        indentation = len(line) - len(line.lstrip())
 
-        if stripped == "基金：":
+        if stripped == "基金：" and indentation == 0:
             in_funds_section = True
             current = None
             continue
 
-        if in_funds_section and stripped.endswith(":") and stripped != "基金：":
+        if in_funds_section and indentation == 0 and stripped.endswith(":"):
             break
 
         if not in_funds_section:
             continue
 
-        if stripped.startswith("- "):
+        if indentation == 2 and stripped.startswith("- "):
             current = {"name": stripped[2:].strip()}
             funds.append(current)
             continue
 
         if current is None:
+            continue
+
+        if indentation != 4:
             continue
 
         match = re.match(r"代码:\s*(\S+)", stripped)
@@ -195,8 +207,32 @@ def normalize_nav_text(nav_text):
     return safe_float(match.group(0), 4) if match else None
 
 
+@lru_cache(maxsize=32)
 def get_prior_day_cutoff(as_of_date):
-    return (pd.Timestamp(as_of_date).normalize() - timedelta(days=1)).date()
+    """Return the preceding SSE trading day instead of the preceding calendar day."""
+    target_date = pd.Timestamp(as_of_date).normalize().date()
+
+    for offset in range(1, 32):
+        candidate_date = target_date - timedelta(days=offset)
+        response = requests.get(
+            SSE_DAILY_SUMMARY_URL,
+            params={
+                "sqlId": SSE_DAILY_SUMMARY_SQL_ID,
+                "PRODUCT_CODE": "01,02,03,11,17",
+                "type": "inParams",
+                "SEARCH_DATE": candidate_date.isoformat(),
+            },
+            headers=SSE_DAILY_SUMMARY_HEADERS,
+            timeout=20,
+        )
+        response.raise_for_status()
+        result = response.json().get("result")
+        if isinstance(result, list) and result:
+            return candidate_date
+
+    raise RequiredQuantitativeDataUnavailable(
+        f"上交所近31日未返回交易日数据，无法确定{target_date}的前一交易日"
+    )
 
 
 def parse_report_date_from_path(path):
