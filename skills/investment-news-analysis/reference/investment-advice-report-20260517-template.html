@@ -373,20 +373,20 @@
               <p>{{volume_judgment}}</p>
             </div>
 
-            <h3>已获取 ETF 走向总览</h3>
-            <p class="muted">以下表格用于集中展示本轮已抓到的核心行业 ETF 与持仓映射 ETF 走向。若两组 ETF 有重复代码，应先去重后再输出，避免重复展示。</p>
+            <h3>大盘宽基指数与沪金99.99收盘总览</h3>
+            <p class="muted">以下表格展示前一交易日上证、深成、创业板、沪深300、上证50、中证系列、科创50等大盘宽基指数与沪金99.99。未取得目标交易日数据的项目必须保留为空值或失败状态，不得使用更早交易日数据。</p>
             <div class="table-wrap">
               <table class="etf-overview">
                 <thead>
                   <tr>
-                    <th>ETF(代码)</th>
+                    <th>指数 / 品种</th>
                     <th>来源</th>
                     <th>前一交易日涨跌幅</th>
-                    <th>对应持仓 / 备注</th>
+                    <th>收盘 / 备注</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {{etf_trend_rows}}
+                  {{market_index_rows}}
                 </tbody>
               </table>
             </div>
@@ -424,24 +424,6 @@
                 </thead>
                 <tbody>
                   {{sw_l2_top_losers}}
-                </tbody>
-              </table>
-            </div>
-
-            <h3>持仓相关行业对照</h3>
-            <p class="muted">列出每只持仓基金对应的申万二级行业涨跌和ETF代理涨跌。</p>
-            <div class="table-wrap">
-              <table class="etf-overview">
-                <thead>
-                  <tr>
-                    <th>持仓基金</th>
-                    <th>对应申万二级行业</th>
-                    <th>行业涨跌</th>
-                    <th>ETF代理涨跌</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {{holding_industry_rows}}
                 </tbody>
               </table>
             </div>

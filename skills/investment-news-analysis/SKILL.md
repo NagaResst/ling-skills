@@ -53,7 +53,7 @@ HTML 投资建议报告的唯一结构规范与唯一页面骨架。两者必须
 | 画像约束前    | `投资者行动/投资者画像.md`                                                                                                                                                           | 黑名单、风险偏好、工具边界                                |
 | 搜索前      | [reference/archiving.md](reference/archiving.md)                                                                                                                           | 当日归档目录、单条摘要字段、去重规则                           |
 | 搜索阶段     | [reference/search-strategy.md](reference/search-strategy.md)                                                                                                               | 以`finance_news.json`为初始轮素材，额外再加上网络搜到的素材归档到本地 |
-| 定量数据前    | `scripts/fetch_market_momentum.py`                                                                                                                                         | 前一交易日官方净值、宽基ETF收盘、申万二级行业指数、北向单日、全市场融资余额、全A（沪深京）成交额、持仓快照                  |
+| 定量数据前    | `scripts/fetch_market_momentum.py`                                                                                                                                         | 前一交易日官方净值、宽基指数收盘、申万二级行业指数、北向单日、全市场融资余额、全A（沪深京）成交额、持仓快照                  |
 | 历史读取前    | [reference/historical-data.md](reference/historical-data.md)                                                                                                               | 历史 summary 提取、最近可比较基准读取、持仓变化对比               |
 | 预测前      | [reference/prediction-verification.md](reference/prediction-verification.md)                                                                                               | 信息充分性检查                               |
 | HTML 输出前 | [reference/investment-advice-report-20260517-guide.md](reference/investment-advice-report-20260517-guide.md) + `reference/investment-advice-report-20260517-template.html` | 必须基于模板文件填充出的完整 HTML 页面，禁止自定义另一套页面骨架 |
@@ -90,9 +90,9 @@ HTML 投资建议报告的唯一结构规范与唯一页面骨架。两者必须
 
 #### 量能前置取数（脚本前置，不属于阶段二的政策/市场/宏观新闻搜索）
 
-全A（沪深京）成交额由脚本直接读取三所同日官方统计：上交所、深交所通过 AkShare 查询指定交易日的日度汇总，北交所读取其市场总貌接口。脚本只汇总上交所主板A与科创板、深交所主板A股与创业板A股、北交所股票成交额，并排除 B 股、基金、债券、期权和股票回购。
+全A（沪深京）成交额由脚本直接读取三所同日官方统计：上交所、深交所通过 AkShare 查询指定交易日的日度汇总，北交所读取其市场总貌接口。脚本只汇总上交所主板A与科创板、深交所主板A股与创业板A股、北交所股票成交额，并排除 B 股、基金、债券、期权和股票回购。若成交额查询失败，脚本必须保留其失败状态并继续完成其他查询与写入，不得以更早交易日或新闻数据填充。
 
-三所数据必须全部对应前一交易日；北交所响应日期由脚本显式校验。任一来源未取得目标交易日的有效数据时，脚本中止；**不得省略量能字段、不得第二次运行脚本补参数、不得生成日报或 HTML**。新闻收评只可用于事后叙事或交叉检查，不作为量能主数据。
+三所数据必须全部对应前一交易日；北交所响应日期由脚本显式校验。任一来源未取得目标交易日的有效数据时，`market_turnover_summary` 必须写明失败状态与原因，脚本仍继续完成其他查询并写入 JSON；**不得用更早交易日或新闻收评填充成交额**。当日报与 HTML 若使用该轮数据，必须明确标出成交额缺口并相应降低判断等级。新闻收评只可用于事后叙事或交叉检查，不作为量能主数据。
 
 统一口径：
 
@@ -188,11 +188,12 @@ python3 .github/skills/investment-news-analysis/scripts/fetch_market_momentum.py
 1. **基金净值**：字段是 `official_nav`，不是 `nav`。`fund_official_navs[]` 每个元素含 `code`、`name`、`official_nav`、`nav_date`。
 2. **申万二级行业**：数据嵌套在 `sw_l2_industry_daily.industries[]`，不是 `sw_l2_industry_daily` 直接是数组。行业名字段是 `index_name`，不是 `industry_name`。可用字段：`index_code`、`index_name`、`date`、`change_pct`、`pe_ttm`、`pb`、`dividend_yield_pct`、`circulating_market_cap_yi` 等。
 3. **北向资金**：`northbound_weekly_summary.daily_net_flow[].net_deal_amt_raw` 单位是万元，需除以 100 换算为亿元。`total_net_in_yi_if_raw_unit_is_million` 字段名虽含 "million" 但实际已换算为亿元。
-4. **ETF 数据分两组**：`relevant_etf_daily` 和 `core_industry_etf_daily`，不是 `etf_daily`（该字段为空字典）。
+4. **大盘、黄金与行业数据分三组**：`core_market_index_daily` 是上证、深成、创业板、沪深300、上证50和中证100/200/500/800/1000/2000/A500/全指/红利、科创50等宽基指数的前一交易日收盘数据，用于复盘大盘行情；`shanghai_gold_9999_daily` 是上海黄金交易所沪金99.99的前一交易日行情；`industry_etf_daily` 字段保留在脚本输出中但**不再作为报告章节数据源**（独立行业ETF观察章节已于2026-09移除，报告只保留宽基+沪金表和申万二级行业排行）。指数与沪金99.99都必须精确匹配前一交易日，取不到时保持空值或失败状态，禁止回退到更早交易日。`etf_daily` 字段为空字典，不得使用。
 5. **analysis_snapshot vs holding_valuation_snapshot**：做调仓计算时优先使用 `analysis_snapshot`，因为它有 `full` 和 `holding_weight_pct` 等便利字段。
 6. **持仓文件解析**：`fetch_market_momentum.py` 要求持仓文件为扁平 `key: value` 格式。购入时间嵌套格式会导致解析器静默截断。始终显式传入 `--holdings-file`。
-7. **市场量能总览**：`market_turnover_summary` 字段含全A（沪深京）成交额，来源为三所同日官方日度统计：上交所主板A+科创板、深交所主板A股+创业板A股、北交所股票成交额。沪深数据通过 AkShare 查询指定交易日，北交所响应的 `rq` 字段必须精确匹配该交易日；禁止混用不同日期，也不得包含 B 股、基金、债券、期权或股票回购。东方财富 `800004` 和新闻收评均不再是该字段数据源。任一所未返回有效目标日数据时，脚本必须中止，禁止生成含“数据缺失”的日报。`northbound_daily_raw` 必须读取东财 `006` 北向汇总行的 `NET_DEAL_AMT`；仅在 `006` 缺失时以 `002+004` 同日相加，禁止读取没有净流入字段的 `005` 行。`hs_margin_summary` 字段含全市场融资融券余额，来自 `stock_margin_account_info`（含沪深+北交所，单位亿元）；该字段同时输出 `margin_balance_change_yi`（与前一交易日融资余额变动，单位亿元）和 `margin_balance_change_pct`（变动百分比），用于日报和 HTML 报告中"对比昨日"备注列。与 `northbound_daily_raw` 三者搭配可评估市场整体量能。日报和 HTML 报告中均需展示这三项指标的对比表。
+7. **市场量能总览**：`market_turnover_summary` 字段含全A（沪深京）成交额，来源为三所同日官方日度统计：上交所主板A+科创板、深交所主板A股+创业板A股、北交所股票成交额。沪深数据通过 AkShare 查询指定交易日，北交所响应的 `rq` 字段必须精确匹配该交易日；禁止混用不同日期，也不得包含 B 股、基金、债券、期权或股票回购。东方财富 `800004` 和新闻收评均不再是该字段数据源。任一所未返回有效目标日数据时，字段必须保留失败状态与原因，脚本继续生成其他数据；日报和 HTML 不得伪造或用旧日数据补齐，必须在量能表和信息边界中标注成交额缺口。`northbound_daily_raw` 必须读取东财 `006` 北向汇总行的 `NET_DEAL_AMT`；仅在 `006` 缺失时以 `002+004` 同日相加，禁止读取没有净流入字段的 `005` 行。`hs_margin_summary` 字段含全市场融资融券余额，来自 `stock_margin_account_info`（含沪深+北交所，单位亿元）；该字段同时输出 `margin_balance_change_yi`（与前一交易日融资余额变动，单位亿元）和 `margin_balance_change_pct`（变动百分比），用于日报和 HTML 报告中"对比昨日"备注列。与 `northbound_daily_raw` 三者搭配可评估市场整体量能。日报和 HTML 报告中均需展示这三项指标的对比表。
 8. **item_summaries 归档边界**：北向资金、融资余额、成交额等脚本定量数据不创建 item_summary。这些数据已在 `raw_data/market_momentum_YYYY-MM-DD.json` 中，在日报第四章展示即可。把它们当作"新闻条目"归档会挤占真正新闻的位置。
+9. **数据源行为（2026-09 起）**：宽基指数日线走 fallback 链：腾讯 web.ifzq.gtimg.cn 主源 → 中证指数官网 index-perf 补 csi 系列（932000 中证2000 等，腾讯/新浪均无此指数）→ 东财 push2his 兜底。东财 push2his 对短时连续请求会 RemoteDisconnected 断连甚至临时封禁出口 IP（高频连打后单请求也失败，需等待解封）。申万二级行业为**直连申万宏源官方接口**（绕过 akshare——akshare 在接口 count=0 空表时抛 KeyError('发布日期') 掩盖真实原因）；该接口 **T+1 发布**：当天查询前一天数据 count=0 是正常现象（脚本返回 status=not_found），等待上游发布后重跑即恢复，禁止用旧数据回填。**申万二级失败时脚本自动降级用同花顺行业板块指数**（`sw_l2_industry_daily` 字段不变，`source` 区分：申万宏源=官方口径 124 子行业含估值；同花顺=88xxxx 指数点位涨跌幅、90 行业、含 amount_yi_gu 成交额、无估值字段；`note` 记录降级原因与申万失败原因）。日报涉及板块涨跌时按 `source` 标注口径差异。09-07/09-08 旧版 JSON 中申万数据实际是 09-04 的（旧版无日期校验静默回退），回溯旧日报需注意。
 
 ### 网络搜索补充的可靠性
 
@@ -215,7 +216,7 @@ python3 .github/skills/investment-news-analysis/scripts/fetch_market_momentum.py
 1. 第一章核心指标表必须包含 `持有份额` 和 `当前持有金额`，并覆盖全部 active holdings。
 2. 如检测到份额变化，必须写 `持仓变化检测`；无变化也必须明确写出。
 3. 第二章必须列出所有 `item_summaries` 的紧凑索引和归档路径，完整事实与链接以单条归档及 HTML 为准。
-4. 第四章必须保留成交额、北向、融资余额三项量能，以及会影响当前持仓状态的市场信号；全量 ETF/行业表放 HTML。
+4. 第四章必须保留成交额、北向、融资余额三项量能，以及会影响当前持仓状态的市场信号；申万二级行业排行（涨幅前10/跌幅前10）放 HTML，summary 只保留核心结论。
 5. `复盘与风险雷达` 必须服务动作判断，只写验证状态、风险变化和动作边界，不能重复前文。
 6. 第六章必须是覆盖全部 active holdings 的结构化状态快照，至少有状态/建议、唯一关键信号、成本锚定触发线、置信度及 HTML 卡片路径；完整逐基金推理放 HTML。
 7. `今日关注要点` 必须面向分析日当天，默认最多三条，不写成机械的“明日关注”。

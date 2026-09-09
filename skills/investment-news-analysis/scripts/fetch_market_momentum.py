@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
+from time import sleep
 
 import akshare as ak
 import pandas as pd
@@ -20,54 +21,24 @@ DEFAULT_HOLDINGS_FILE = ROOT / "投资者行动" / "持仓情况.md"
 ADVICE_REPORT_DIR = ROOT / "投资者行动" / "持仓分析与建议"
 ARCHIVE_DIR = ROOT / "投资新闻归档"
 
-CORE_INDUSTRY_ETFS = {
-    "588000": {"theme": "科创50"},
-    "159915": {"theme": "创业板"},
-    "510300": {"theme": "沪深300"},
-    "510500": {"theme": "中证500"},
-    "510050": {"theme": "上证50"},
-    "563360": {"theme": "中证A500"},
-    "560050": {"theme": "中国A50"},
+CORE_MARKET_INDICES = {
+    "sh000001": {"code": "000001", "name": "上证指数"},
+    "sh000016": {"code": "000016", "name": "上证50"},
+    "sz399001": {"code": "399001", "name": "深证成指"},
+    "sz399006": {"code": "399006", "name": "创业板指"},
+    "sh000300": {"code": "000300", "name": "沪深300"},
+    "sh000903": {"code": "000903", "name": "中证100"},
+    "sh000904": {"code": "000904", "name": "中证200"},
+    "sh000905": {"code": "000905", "name": "中证500"},
+    "sh000906": {"code": "000906", "name": "中证800"},
+    "sh000852": {"code": "000852", "name": "中证1000"},
+    "csi932000": {"code": "932000", "name": "中证2000"},
+    "sh000510": {"code": "000510", "name": "中证A500"},
+    "sh000985": {"code": "000985", "name": "中证全指"},
+    "sh000922": {"code": "000922", "name": "中证红利"},
+    "sh000688": {"code": "000688", "name": "科创50"},
 }
 
-HOLDING_RELEVANT_ETFS = {
-    "513050": {
-        "theme": "央企红利",
-        "related_funds": ["天弘中证央企红利50指数A(021561)"],
-    },
-    "159781": {
-        "theme": "科创创业50",
-        "related_funds": ["天弘中证科创创业50ETF联接A(012894)"],
-    },
-    "560050": {
-        "theme": "中国A50",
-        "related_funds": ["中银MSCI中国A50互联互通指数增强A(014623)"],
-    },
-    "562550": {
-        "theme": "绿电",
-        "related_funds": ["富国中证绿色电力ETF发起式联接A(020095)"],
-    },
-    "510300": {
-        "theme": "沪深300",
-        "related_funds": ["易方达沪深300指数精选增强A(010736)"],
-    },
-    "159996": {
-        "theme": "家电",
-        "related_funds": ["易方达中证家电龙头ETF联接C(018647)"],
-    },
-    "159995": {
-        "theme": "芯片",
-        "related_funds": ["汇添富中证芯片产业指数增强C(014194)"],
-    },
-    "588000": {
-        "theme": "科创50",
-        "related_funds": ["华商新趋势优选灵活配置混合(166301)"],
-    },
-    "511010": {
-        "theme": "国债",
-        "related_funds": ["中欧鼎利债券C(009520)"],
-    },
-}
 
 EASTMONEY_MUTUAL_HISTORY_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 EASTMONEY_FUND_NAV_URL = "https://api.fund.eastmoney.com/f10/lsjz"
@@ -175,6 +146,22 @@ def safe_int(value):
     if pd.isna(numeric):
         return None
     return int(numeric)
+
+
+def get_sse_daily_turnover_with_retry(date, attempts=3):
+    """Retry only transient SSE connection failures from AkShare's single-shot client."""
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            return ak.stock_sse_deal_daily(date=date)
+        except (requests.RequestException, ConnectionError) as error:
+            last_error = error
+            if attempt + 1 < attempts:
+                sleep(attempt + 1)
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("上交所日度成交额重试未执行")
 
 
 def sanitize_for_json(value):
@@ -458,15 +445,8 @@ def build_analysis_snapshot(payload):
     total_holding_amount = valuation.get("total_holding_amount")
     change_summary = payload.get("holdings_change_vs_previous_report") or {}
     change_rows = change_summary.get("changes") or []
-    relevant_etf_daily = payload.get("relevant_etf_daily") or []
 
     changes_by_code = {item.get("code"): item for item in change_rows if item.get("code")}
-    etf_by_full = {}
-    for item in relevant_etf_daily:
-        if item.get("status") != "success":
-            continue
-        for related_full in item.get("related_funds") or []:
-            etf_by_full[related_full] = item
 
     holdings = []
     for item in valuation_rows:
@@ -476,7 +456,6 @@ def build_analysis_snapshot(payload):
             continue
         full = f"{name}({code})"
         change = changes_by_code.get(code) or {}
-        related_etf = etf_by_full.get(full) or {}
         holdings.append(
             {
                 "code": code,
@@ -494,9 +473,6 @@ def build_analysis_snapshot(payload):
                 "share_change_type": change.get("change_type"),
                 "previous_shares": change.get("previous_shares"),
                 "share_delta": change.get("share_delta"),
-                "related_etf": related_etf.get("code"),
-                "related_etf_name": related_etf.get("theme"),
-                "related_etf_change_pct": related_etf.get("change_pct"),
             }
         )
 
@@ -970,7 +946,7 @@ def get_market_turnover_summary(as_of_date):
     target_date = cutoff_date.strftime("%Y%m%d")
 
     try:
-        sse_daily = ak.stock_sse_deal_daily(date=target_date)
+        sse_daily = get_sse_daily_turnover_with_retry(target_date)
         sse_turnover_row = sse_daily.loc[sse_daily["单日情况"] == "成交金额"]
         if len(sse_turnover_row) != 1:
             raise ValueError("上交所日度数据缺少唯一的成交金额记录")
@@ -1149,18 +1125,21 @@ def build_etf_daily_from_history(df, code, theme, symbol, source, as_of_date):
             "theme": theme,
             "symbol": symbol,
             "status": "empty",
+            "requested_date": str(target_date),
         }
 
-    eligible = df[df["date"] <= target_date]
-    if eligible.empty:
+    matching_rows = df[df["date"] == target_date]
+    if matching_rows.empty:
         return {
             "code": code,
             "theme": theme,
             "symbol": symbol,
             "status": "date_not_found",
+            "requested_date": str(target_date),
+            "note": "行业 ETF 未取得目标交易日数据，不回退使用更早交易日。",
         }
 
-    idx = int(eligible.index[-1])
+    idx = int(matching_rows.index[-1])
     row = df.loc[idx]
     prev_close = None
     change_pct = None
@@ -1227,64 +1206,526 @@ def get_single_etf_daily(code, theme, as_of_date):
         }
 
 
-def get_core_industry_etf_daily(as_of_date):
+def _get_single_market_index_daily_eastmoney(symbol, code, name, as_of_date):
+    target_date = get_prior_day_cutoff(as_of_date)
+    start_date = (target_date - timedelta(days=14)).strftime("%Y%m%d")
+    end_date = target_date.strftime("%Y%m%d")
+
+    try:
+        last_error = None
+        df = None
+        for attempt in range(5):
+            try:
+                df = ak.stock_zh_index_daily_em(
+                    symbol=symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                break
+            except (requests.RequestException, ConnectionError) as exc:
+                last_error = exc
+                if attempt < 4:
+                    sleep(attempt * attempt + 1)
+
+        if df is None:
+            raise last_error or RuntimeError("宽基指数历史接口未返回数据")
+
+        if df.empty:
+            return {
+                "code": code,
+                "name": name,
+                "symbol": symbol,
+                "status": "empty",
+                "requested_date": str(target_date),
+            }
+
+        df = df.copy()
+        df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+        df = df.dropna(subset=["date", "close"]).sort_values(by="date", ascending=True).reset_index(drop=True)
+        matching_rows = df[df["date"] == target_date]
+        if matching_rows.empty:
+            return {
+                "code": code,
+                "name": name,
+                "symbol": symbol,
+                "status": "date_not_found",
+                "requested_date": str(target_date),
+                "note": "大盘宽基指数未取得目标交易日数据，不回退使用更早交易日。",
+            }
+
+        row = matching_rows.iloc[-1]
+        prior_rows = df[df["date"] < target_date]
+        prev_close = None
+        change_pct = None
+        if not prior_rows.empty:
+            prev_close = float(prior_rows.iloc[-1]["close"])
+            if prev_close != 0:
+                change_pct = round((float(row["close"]) / prev_close - 1) * 100, 2)
+
+        return {
+            "code": code,
+            "name": name,
+            "symbol": symbol,
+            "status": "success",
+            "date": str(row["date"]),
+            "open": float(row["open"]),
+            "high": float(row["high"]),
+            "low": float(row["low"]),
+            "close": float(row["close"]),
+            "prev_close": prev_close,
+            "change_pct": change_pct,
+            "volume": safe_int(row.get("volume")),
+            "amount": safe_int(row.get("amount")),
+            "source": "AkShare stock_zh_index_daily_em（东方财富指数日线）",
+        }
+    except Exception as exc:
+        return {
+            "code": code,
+            "name": name,
+            "symbol": symbol,
+            "status": "error",
+            "requested_date": str(target_date),
+            "message": str(exc),
+        }
+
+
+def get_tencent_index_daily(symbol, code, name, as_of_date):
+    """腾讯行情日K（web.ifzq.gtimg.cn），宽基指数主数据源。
+
+    东财 push2his 对短时连续请求会 RemoteDisconnected 断连甚至临时封禁出口 IP，
+    腾讯接口稳定且一次返回全部K线，作为指数日线第一顺位源。
+    """
+    target_date = get_prior_day_cutoff(as_of_date)
+    try:
+        response = requests.get(
+            "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+            params={"param": f"{symbol},day,,,32,qfq"},
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        node = (response.json().get("data") or {}).get(symbol) or {}
+        rows = node.get("day") or node.get("qfqday") or []
+    except Exception as exc:
+        return {
+            "code": code,
+            "name": name,
+            "symbol": symbol,
+            "status": "error",
+            "requested_date": str(target_date),
+            "message": f"腾讯行情接口失败: {exc}",
+        }
+
+    if not rows:
+        return {
+            "code": code,
+            "name": name,
+            "symbol": symbol,
+            "status": "empty",
+            "requested_date": str(target_date),
+            "note": "腾讯未返回该指数K线（中证系列请走中证官网源）。",
+        }
+
+    df = pd.DataFrame(rows).iloc[:, :6]
+    df.columns = ["date", "open", "close", "high", "low", "volume"]
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    for column in ["open", "close", "high", "low", "volume"]:
+        df[column] = pd.to_numeric(df[column], errors="coerce")
+    df = df.dropna(subset=["date", "close"]).sort_values(by="date", ascending=True).reset_index(drop=True)
+    if df.empty:
+        return {
+            "code": code,
+            "name": name,
+            "symbol": symbol,
+            "status": "empty",
+            "requested_date": str(target_date),
+        }
+
+    matching_rows = df[df["date"] == target_date]
+    if matching_rows.empty:
+        return {
+            "code": code,
+            "name": name,
+            "symbol": symbol,
+            "status": "date_not_found",
+            "requested_date": str(target_date),
+            "note": f"腾讯K线最新到 {df['date'].max()}，无目标交易日 {target_date}，不回退使用更早交易日。",
+        }
+
+    idx = int(matching_rows.index[-1])
+    row = df.loc[idx]
+    prev_close = None
+    change_pct = None
+    if idx > 0 and pd.notna(df.loc[idx - 1, "close"]):
+        prev_close = float(df.loc[idx - 1, "close"])
+        if prev_close != 0:
+            change_pct = round((float(row["close"]) / prev_close - 1) * 100, 2)
+
+    return {
+        "code": code,
+        "name": name,
+        "symbol": symbol,
+        "status": "success",
+        "date": str(row["date"]),
+        "open": float(row["open"]),
+        "high": float(row["high"]),
+        "low": float(row["low"]),
+        "close": float(row["close"]),
+        "prev_close": prev_close,
+        "change_pct": change_pct,
+        "volume": safe_int(row.get("volume")),
+        "amount": None,
+        "source": "腾讯 web.ifzq.gtimg.cn fqkline",
+    }
+
+
+def get_csindex_index_daily(code, name, as_of_date):
+    """中证指数官网日行情（index-perf），仅覆盖中证系列指数（如 932000）。
+
+    腾讯/新浪均不提供中证2000(932000)的指数K线，东财 csi 代码又会在高频请求时被
+    断连，因此中证系列指数优先走官网。
+    """
+    target_date = get_prior_day_cutoff(as_of_date)
+    start_date = (target_date - timedelta(days=30)).strftime("%Y%m%d")
+    try:
+        response = requests.get(
+            "https://www.csindex.com.cn/csindex-home/perf/index-perf",
+            params={
+                "indexCode": code,
+                "startDate": start_date,
+                "endDate": target_date.strftime("%Y%m%d"),
+            },
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.csindex.com.cn/"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        rows = (response.json().get("data")) or []
+    except Exception as exc:
+        return {
+            "code": code,
+            "name": name,
+            "symbol": f"csi{code}",
+            "status": "error",
+            "requested_date": str(target_date),
+            "message": f"中证指数官网接口失败: {exc}",
+        }
+
+    if not rows:
+        return {
+            "code": code,
+            "name": name,
+            "symbol": f"csi{code}",
+            "status": "date_not_found",
+            "requested_date": str(target_date),
+            "note": "中证指数官网未返回目标窗口K线。",
+        }
+
+    target_str = target_date.strftime("%Y%m%d")
+    date_rows = [item for item in rows if str(item.get("tradeDate")) == target_str]
+    if not date_rows:
+        latest = str(rows[-1].get("tradeDate")) if rows else "?"
+        return {
+            "code": code,
+            "name": name,
+            "symbol": f"csi{code}",
+            "status": "date_not_found",
+            "requested_date": str(target_date),
+            "note": f"中证指数官网最新到 {latest}，无目标交易日 {target_str}，不回退使用更早交易日。",
+        }
+
+    row = date_rows[-1]
+    prev_close = None
+    change_pct = None
+    for item in reversed(rows):
+        if str(item.get("tradeDate")) < target_str:
+            prev_close = float(item.get("close") or 0)
+            break
+    if prev_close not in (None, 0):
+        change_pct = round((float(row["close"]) / prev_close - 1) * 100, 2)
+
+    return {
+        "code": code,
+        "name": name,
+        "symbol": f"csi{code}",
+        "status": "success",
+        "date": str(pd.Timestamp(str(row["tradeDate"])).date()),
+        "open": float(row["open"]),
+        "high": float(row["high"]),
+        "low": float(row["low"]),
+        "close": float(row["close"]),
+        "prev_close": prev_close,
+        "change_pct": change_pct,
+        "volume": safe_int(row.get("tradingVol")),
+        "amount": None,
+        "source": "中证指数官网 index-perf",
+    }
+
+
+def get_single_market_index_daily(symbol, code, name, as_of_date):
+    """宽基指数日线：腾讯主源 → 中证官网（csi 系列）→ 东财（原实现兜底）。"""
+    if symbol.startswith("csi"):
+        result = get_csindex_index_daily(code, name, as_of_date)
+        if result.get("status") == "success":
+            return result
+
+    result = get_tencent_index_daily(symbol, code, name, as_of_date)
+    if result.get("status") == "success":
+        return result
+
+    return _get_single_market_index_daily_eastmoney(symbol, code, name, as_of_date)
+
+
+def get_core_market_index_daily(as_of_date):
     results = []
 
-    for code, meta in CORE_INDUSTRY_ETFS.items():
-        results.append(get_single_etf_daily(code, meta["theme"], as_of_date))
+    for symbol, meta in CORE_MARKET_INDICES.items():
+        results.append(
+            get_single_market_index_daily(
+                symbol=symbol,
+                code=meta["code"],
+                name=meta["name"],
+                as_of_date=as_of_date,
+            )
+        )
 
     return results
 
 
-def get_sw_l2_industry_daily(as_of_date):
-    """抓取申万二级行业指数日报数据（收盘指数、涨跌幅、市盈率、市净率等）。
-
-    若 cutoff_date 为非交易日，自动往前最多回溯 5 天寻找最近交易日数据。
-    """
+def get_shanghai_gold_9999_daily(as_of_date):
+    target_date = get_prior_day_cutoff(as_of_date)
     try:
-        # 从分析日本身开始往前回溯，找到最近有数据的交易日
-        start_date = pd.Timestamp(as_of_date).normalize().date()
-
-        # 尝试从 start_date 开始往前最多 5 天，找到有数据的最近交易日
-        found_df = None
-        found_date = None
-        for offset in range(6):
-            check_date = start_date - timedelta(days=offset)
-            date_str = check_date.strftime("%Y%m%d")
-            try:
-                df = ak.index_analysis_daily_sw(symbol="二级行业", start_date=date_str, end_date=date_str)
-                if not df.empty:
-                    found_df = df
-                    found_date = check_date
-                    break
-            except Exception:
-                continue
-
-        if found_df is None:
+        df = ak.spot_hist_sge(symbol="Au99.99")
+        if df.empty:
             return {
+                "code": "Au99.99",
+                "name": "沪金99.99",
+                "symbol": "Au99.99",
                 "status": "empty",
-                "requested_date": str(start_date),
-                "note": "申万二级行业日报返回空数据，回溯5天仍无可用交易日。",
+                "requested_date": str(target_date),
+            }
+
+        df = df.copy()
+        df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+        df = df.dropna(subset=["date", "close"]).sort_values(by="date", ascending=True).reset_index(drop=True)
+        matching_rows = df[df["date"] == target_date]
+        if matching_rows.empty:
+            return {
+                "code": "Au99.99",
+                "name": "沪金99.99",
+                "symbol": "Au99.99",
+                "status": "date_not_found",
+                "requested_date": str(target_date),
+                "note": "沪金99.99未取得目标交易日数据，不回退使用更早交易日。",
+            }
+
+        row = matching_rows.iloc[-1]
+        prior_rows = df[df["date"] < target_date]
+        prev_close = None
+        change_pct = None
+        if not prior_rows.empty:
+            prev_close = float(prior_rows.iloc[-1]["close"])
+            if prev_close != 0:
+                change_pct = round((float(row["close"]) / prev_close - 1) * 100, 2)
+
+        return {
+            "code": "Au99.99",
+            "name": "沪金99.99",
+            "symbol": "Au99.99",
+            "status": "success",
+            "date": str(row["date"]),
+            "open": float(row["open"]),
+            "high": float(row["high"]),
+            "low": float(row["low"]),
+            "close": float(row["close"]),
+            "prev_close": prev_close,
+            "change_pct": change_pct,
+            "source": "AkShare spot_hist_sge（上海黄金交易所Au99.99历史行情）",
+        }
+    except Exception as exc:
+        return {
+            "code": "Au99.99",
+            "name": "沪金99.99",
+            "symbol": "Au99.99",
+            "status": "error",
+            "requested_date": str(target_date),
+            "message": str(exc),
+        }
+
+
+def get_ths_industry_daily(as_of_date):
+    """同花顺行业板块指数日行情（申万二级数据不可用时的 fallback 源）。
+
+    拉取同花顺 90 个行业板块指数（88xxxx）的历史K线，取目标交易日的收盘点位并
+    以前一交易日点位计算涨跌幅。口径说明：这是同花顺板块"指数点位涨跌幅"
+    （成分股等权口径），与申万宏源官方指数口径不完全一致，仅作降级替代；
+    申万二级为 124 个子行业，同花顺为 90 个行业，粒度也不同。
+    """
+    target_date = get_prior_day_cutoff(as_of_date)
+    start_date = (target_date - timedelta(days=15)).strftime("%Y%m%d")
+    end_date = target_date.strftime("%Y%m%d")
+    try:
+        name_df = ak.stock_board_industry_name_ths()
+        if name_df is None or name_df.empty or "name" not in name_df.columns:
+            return {
+                "status": "error",
+                "requested_date": str(target_date),
+                "count": 0,
+                "industries": [],
+                "message": "同花顺行业板块列表接口未返回数据",
+            }
+        board_names = name_df["name"].tolist()
+        board_codes = name_df["code"].tolist() if "code" in name_df.columns else [""] * len(board_names)
+    except Exception as exc:
+        return {
+            "status": "error",
+            "requested_date": str(target_date),
+            "count": 0,
+            "industries": [],
+            "message": f"同花顺行业板块列表接口失败: {exc}",
+        }
+
+    industries = []
+    missed = []
+    for board_name, board_code in zip(board_names, board_codes):
+        try:
+            df = ak.stock_board_industry_index_ths(
+                symbol=board_name, start_date=start_date, end_date=end_date
+            )
+            if df is None or df.empty:
+                missed.append(board_name)
+                continue
+            df = df.copy()
+            df["日期"] = pd.to_datetime(df["日期"], errors="coerce").dt.date
+            df = df.dropna(subset=["日期", "收盘价"]).sort_values(by="日期").reset_index(drop=True)
+            matching = df[df["日期"] == target_date]
+            if matching.empty:
+                missed.append(board_name)
+                continue
+            idx = int(matching.index[-1])
+            row = df.loc[idx]
+            prev_close = None
+            change_pct = None
+            if idx > 0:
+                prev_close = float(df.loc[idx - 1, "收盘价"])
+                if prev_close != 0:
+                    change_pct = round((float(row["收盘价"]) / prev_close - 1) * 100, 2)
+            industries.append(
+                {
+                    "index_code": str(board_code),
+                    "index_name": board_name,
+                    "date": str(row["日期"]),
+                    "close_index": safe_float(row["收盘价"], 2),
+                    "change_pct": change_pct,
+                    "turnover_rate": None,
+                    "pe_ttm": None,
+                    "pb": None,
+                    "volume_yi_gu": safe_float(row.get("成交量"), 2),
+                    "avg_price": None,
+                    "turnover_pct": None,
+                    "circulating_market_cap_yi": None,
+                    "avg_circulating_market_cap_yi": None,
+                    "dividend_yield_pct": None,
+                    "amount_yi_gu": safe_float(row.get("成交额"), 2),
+                }
+            )
+            sleep(0.15)
+        except Exception as exc:
+            missed.append(f"{board_name}({str(exc)[:40]})")
+
+    industries_sorted = sorted(
+        industries, key=lambda x: x.get("change_pct") or 0, reverse=True
+    )
+    note = "同花顺行业板块指数（88xxxx）历史K线口径：指数点位涨跌幅，90个行业，与申万官方口径（124个二级子行业）粒度不同，仅作申万数据不可用时的降级替代。"
+    if missed:
+        note += f" 缺失板块({len(missed)}): {'、'.join(missed[:10])}"
+    return {
+        "status": "success",
+        "source": "同花顺行业板块指数(THS 88xxxx) fallback",
+        "requested_date": str(target_date),
+        "actual_date": str(target_date),
+        "count": len(industries_sorted),
+        "industries": industries_sorted,
+        "note": note,
+    }
+
+
+def get_sw_l2_industry_daily(as_of_date):
+    """直连申万宏源研究指数分析接口，抓取前一交易日的申万二级行业指数数据。
+
+    上游数据 T+1 发布：当日查询返回 count=0 时返回 not_found 明确状态，
+    不回退至更早日期。绕过 akshare——其内部在 count=0 时空表访问列会抛
+    KeyError('发布日期')，掩盖"上游未发布数据"的真实原因。
+    """
+    target_date = get_prior_day_cutoff(as_of_date)
+    url = "https://www.swsresearch.com/institute-sw/api/index_analysis/index_analysis_report/"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+    }
+    base_params = {
+        "page_size": "50",
+        "index_type": "二级行业",
+        "start_date": str(target_date),
+        "end_date": str(target_date),
+        "type": "DAY",
+        "swindexcode": "all",
+    }
+    try:
+        rows = []
+        total = None
+        page = 1
+        while True:
+            params = dict(base_params, page=str(page))
+            response = requests.get(url, params=params, headers=headers, verify=False, timeout=30)
+            response.raise_for_status()
+            data = (response.json() or {}).get("data") or {}
+            page_rows = data.get("results") or []
+            rows.extend(page_rows)
+            total = data.get("count")
+            if total is None or page * 50 >= total or not page_rows:
+                break
+            page += 1
+            sleep(0.3)
+
+        if not rows or not total:
+            return {
+                "status": "not_found",
+                "requested_date": str(target_date),
+                "actual_date": None,
+                "count": 0,
+                "industries": [],
+                "note": "申万宏源接口未返回目标交易日数据（该接口通常T+1发布，当日查询为空属正常），不回退使用更早交易日。",
+            }
+
+        publication_dates = [str(row.get("bargaindate", ""))[:10] for row in rows]
+        if not publication_dates or not all(item == str(target_date) for item in publication_dates):
+            return {
+                "status": "date_mismatch",
+                "requested_date": str(target_date),
+                "actual_dates": sorted({item for item in publication_dates}),
+                "count": 0,
+                "industries": [],
+                "note": "申万二级行业日报返回的日期不等于目标交易日，不使用该批数据。",
             }
 
         industries = []
-        for _, row in found_df.iterrows():
+        for row in rows:
             industries.append(
                 {
-                    "index_code": str(row.get("指数代码", "")),
-                    "index_name": str(row.get("指数名称", "")),
-                    "date": str(row.get("发布日期", "")),
-                    "close_index": safe_float(row.get("收盘指数"), 2),
-                    "change_pct": safe_float(row.get("涨跌幅"), 2),
-                    "turnover_rate": safe_float(row.get("换手率"), 2),
-                    "pe_ttm": safe_float(row.get("市盈率"), 2),
-                    "pb": safe_float(row.get("市净率"), 2),
-                    "volume_yi_gu": safe_float(row.get("成交量"), 2),
-                    "avg_price": safe_float(row.get("均价"), 2),
-                    "turnover_pct": safe_float(row.get("成交额占比"), 2),
-                    "circulating_market_cap_yi": safe_float(row.get("流通市值"), 2),
-                    "avg_circulating_market_cap_yi": safe_float(row.get("平均流通市值"), 2),
-                    "dividend_yield_pct": safe_float(row.get("股息率"), 2),
+                    "index_code": str(row.get("swindexcode", "")),
+                    "index_name": str(row.get("swindexname", "")),
+                    "date": str(row.get("bargaindate", ""))[:10],
+                    "close_index": safe_float(row.get("closeindex"), 2),
+                    "change_pct": safe_float(row.get("markup"), 2),
+                    "turnover_rate": safe_float(row.get("turnoverrate"), 2),
+                    "pe_ttm": safe_float(row.get("pe"), 2),
+                    "pb": safe_float(row.get("pb"), 2),
+                    "volume_yi_gu": safe_float(row.get("bargainamount"), 2),
+                    "avg_price": safe_float(row.get("meanprice"), 2),
+                    "turnover_pct": safe_float(row.get("bargainsumrate"), 2),
+                    "circulating_market_cap_yi": safe_float(row.get("negotiablessharesum1"), 2),
+                    "avg_circulating_market_cap_yi": safe_float(row.get("negotiablessharesum2"), 2),
+                    "dividend_yield_pct": safe_float(row.get("dp"), 2),
                 }
             )
 
@@ -1295,32 +1736,45 @@ def get_sw_l2_industry_daily(as_of_date):
 
         return {
             "status": "success",
-            "source": "申万宏源研究 index_analysis_daily_sw",
-            "requested_date": str(start_date),
-            "actual_date": str(found_date),
+            "source": "申万宏源研究 官方接口直连 index_analysis_report",
+            "requested_date": str(target_date),
+            "actual_date": publication_dates[0],
             "count": len(industries_sorted),
             "industries": industries_sorted,
         }
     except Exception as exc:
         return {
             "status": "error",
-            "requested_date": str(pd.Timestamp(as_of_date).normalize().date()),
-            "message": str(exc),
+            "requested_date": str(target_date),
+            "actual_date": None,
+            "count": 0,
+            "industries": [],
+            "message": f"申万宏源指数分析接口请求失败: {exc}",
         }
 
 
-def build_relevant_etf_daily(as_of_date, core_industry_etf_daily):
-    core_by_code = {item["code"]: item for item in core_industry_etf_daily}
-    results = []
 
-    for code, meta in HOLDING_RELEVANT_ETFS.items():
-        theme = meta.get("theme") or CORE_INDUSTRY_ETFS.get(code, {}).get("theme", "未知主题")
-        base = core_by_code.get(code) or get_single_etf_daily(code, theme, as_of_date)
-        item = dict(base)
-        item["related_funds"] = meta["related_funds"]
-        results.append(item)
+def get_sw_l2_with_ths_fallback(as_of_date):
+    """申万二级行业优先；数据不可用时降级使用同花顺行业板块指数。
 
-    return results
+    note 中保留申万失败原因与降级口径说明；两者均不可用时保留申万失败状态。
+    """
+    result = get_sw_l2_industry_daily(as_of_date)
+    if result.get("status") == "success":
+        return result
+    ths = get_ths_industry_daily(as_of_date)
+    if ths.get("status") == "success":
+        ths["note"] = (
+            f"申万二级行业数据不可用（{result.get('status')}），已降级使用同花顺行业板块。"
+            f"申万失败原因: {result.get('message') or result.get('note') or '-'}。"
+            f"{ths.get('note', '')}"
+        )
+        return ths
+    result["note"] = (
+        f"申万与同花顺 fallback 均不可用。"
+        f"同花顺失败原因: {ths.get('message') or ths.get('note') or '-'}"
+    )
+    return result
 
 
 def get_eastmoney_fund_nav(code, cutoff_date):
@@ -1424,10 +1878,9 @@ def get_fund_nav_batch(holdings):
 
 
 def require_daily_market_data(payload):
-    """Prevent a daily report from being produced with missing mandatory market facts."""
+    """Require only the market facts that must block the output chain."""
     required_fields = {
         "northbound_daily_raw": "北向单日净流入",
-        "market_turnover_summary": "全A（沪深京）成交额",
     }
     unavailable = []
     for field, label in required_fields.items():
@@ -1444,7 +1897,8 @@ def build_payload(as_of_date, holdings_file):
     holdings_for_nav = merge_holdings_for_nav(holdings, previous_report_context)
     for item in holdings_for_nav:
         item["as_of_date"] = as_of_date
-    core_industry_etf_daily = get_core_industry_etf_daily(as_of_date)
+    core_market_index_daily = get_core_market_index_daily(as_of_date)
+    shanghai_gold_9999_daily = get_shanghai_gold_9999_daily(as_of_date)
     fund_official_navs = get_fund_nav_batch(holdings_for_nav)
     holding_valuation_snapshot = build_holding_valuation_snapshot(holdings, fund_official_navs)
     holdings_change_vs_previous_report = build_holdings_change_summary(
@@ -1464,9 +1918,9 @@ def build_payload(as_of_date, holdings_file):
         "northbound_weekly_summary": get_northbound_weekly_summary(as_of_date=as_of_date),
         "hs_margin_summary": get_hs_margin_summary(as_of_date),
         "market_turnover_summary": get_market_turnover_summary(as_of_date),
-        "core_industry_etf_daily": core_industry_etf_daily,
-        "sw_l2_industry_daily": get_sw_l2_industry_daily(as_of_date),
-        "relevant_etf_daily": build_relevant_etf_daily(as_of_date, core_industry_etf_daily),
+        "core_market_index_daily": core_market_index_daily,
+        "shanghai_gold_9999_daily": shanghai_gold_9999_daily,
+        "sw_l2_industry_daily": get_sw_l2_with_ths_fallback(as_of_date),
         "fund_official_navs": fund_official_navs,
         "holding_valuation_snapshot": holding_valuation_snapshot,
         "holdings_change_vs_previous_report": holdings_change_vs_previous_report,
