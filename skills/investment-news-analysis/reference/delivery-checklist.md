@@ -115,6 +115,8 @@ else:
 | 单花括号占位符 | 模板有两种占位符 `{{double_brace}}` 和 `{single_brace}`，两种都要替换 | 见上方占位符检查 |
 | sec-2b 新闻条目结构 | 必须用模板四段式：`news-item` > `h4` + `p.news-meta`(含来源+链接) + `p`(内容) + `p.muted`(判断) | `re.findall(r'class="news-item"', html)` 数量应等于新闻条数；`re.findall(r'class="news-date"', html)` 必须为 0；`re.findall(r'class="news-body"', html)` 必须为 0 |
 | 市场量能表"亿"重复 | 数据值中不能包含"亿"字（模板已自带"亿"后缀） | `re.findall(r'\d+ 亿 亿', html)` 必须为 0 |
+| sec-2b 判定徽标配色 | 利好=红 `badge good`、利空=绿 `badge warn`、中性=黄 `badge info`；禁止映射反置或缺失 | `len(set(re.findall(r'<span class="badge (?!good|warn|info)([a-z]+)">((?:利好|利空|中性))</span>', html))) == 0` |
+| sec-2b 判定词双色 | 每条新闻判定词必须出现两次：标题徽标一次 + 判断用途段内 tag 一次（漏 tag 即正文无色） | 利好=2、利空=2、中性=2（含"中性偏空"），任一分类词出现次数 < 2 即缺色 |
 | 宽基 / 沪金与申万行业表 | 宽基指数与沪金99.99表为4列、申万二级行业涨跌幅排行（涨幅前10/跌幅前10双表）；每行有 `etf-up`/`etf-down`/`etf-flat` 类；行业指数不出现持仓关联 | 人工确认；`re.findall(r'<tr class="etf-(up|down|flat)"', html)` 数量应 > 0；`holding_industry_rows` 与“持仓相关行业对照”均为0 |
 | action-badge 类名 | 只允许模板定义的 `hold`/`watch`/`light`/`new` | `re.findall(r'action-badge (badge-|steady|rise|urgent)', html)` 必须为 0 |
 | sec-7 badge 类名 | 只允许模板定义的 `hold`/`watch`/`light`/`new`/`badge-hold`/`badge-watch` | `re.findall(r'class="badge badge-', html)` 必须为 0 |

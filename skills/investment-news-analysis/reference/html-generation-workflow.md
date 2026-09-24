@@ -144,6 +144,12 @@ fund.full.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 7. hover CSS 恢复了但忘了 JS injection path
 8. 用第一个 `<tbody>` 替换摘要表，误伤 ETF/政策表
 7. **sec-2b 新闻条目结构偏离模板**：必须使用模板定义的 `<div class="news-item"><h4>标题</h4><p class="news-meta">来源：XXX | <a href="URL" target="_blank">原始链接</a></p><p>事实摘要</p><p class="muted">判断用途：✅/⚠️/❌ 利好/中性/利空</p></div>` 四段式结构。禁止自造 `news-date`/`news-body`/`news-tag` 等非模板 class，禁止省略来源和链接，禁止把标题/内容/判断压成一行。
+
+   判定词必须着色，两处都要：
+   - 标题前徽标：`<span class="badge good">利好</span>` / `<span class="badge warn">利空</span>` / `<span class="badge info">中性</span>`
+   - 判断用途段内的分类词：`<span class="tag-good">利好</span>` / `<span class="tag-warn">利空</span>` / `<span class="tag-info">中性</span>`（"中性偏空"等混合定性归入 tag-info）
+
+   映射固定为红=利好、绿=利空、黄=中性（A 股红涨绿跌习惯），对应 CSS 类已内置在模板 `.badge.good/.badge.warn/.badge.info` 与 `.tag-good/.tag-warn/.tag-info`。禁止把利好写成绿色或利空写成红色，也不得省略 tag span 导致正文判定词无色。
 8. **市场量能表"亿"重复 bug**：模板中 `{{market_turnover_total}} 亿` 已含"亿"后缀，填充数据值时不能再追加"亿"。正确：`{{market_turnover_total}}` 填 `20,500`，模板自带 ` 亿`。错误：填 `20,500 亿`，结果 `20,500 亿 亿`。同理 `{{northbound_net_flow}}`、`{{margin_balance_total}}` 均不能在数据值中包含"亿"字。
 9. **市场与行业表必须分开且 4 列 + 行类着色**：用 `market_index_rows` 填充“大盘宽基指数与沪金99.99收盘总览”，表头为 `指数/品种 | 来源 | 前一交易日涨跌幅 | 收盘/备注`，数据来自 `core_market_index_daily` 与 `shanghai_gold_9999_daily`；申万二级行业排行（涨幅前10/跌幅前10双表）数据来自 `sw_l2_industry_daily.industries[]`。每行 `<tr>` 必须根据涨跌加 `class="etf-up"`/`class="etf-down"`/`class="etf-flat"`。不设独立行业 ETF 走向表（该章节已于2026-09移除）。未取得目标交易日数据时保留缺失状态，禁止用更早交易日补齐。
 10. **action-badge 必须用模板定义的类名**：模板只定义了 `hold`/`watch`/`light`/`new` 四种 action-badge 类。禁止自造 `badge-good`/`badge-warn`/`badge-rise`/`badge-hold` 等非模板类名——CSS 无定义，badge 无样式渲染。正确写法：`<span class="action-badge hold">持有不动</span>`。

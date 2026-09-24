@@ -125,6 +125,13 @@
       .badge-watch { background: var(--warn-soft); color: var(--warn); border: 1px solid rgba(217,119,6,0.2); }
       .badge-new { background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(124,58,237,0.2); }
       .badge-light { background: #f8fafc; color: var(--muted); border: 1px solid var(--line); }
+      /* 新闻判定三色：红=利好 / 绿=利空 / 黄=中性 */
+      .badge.good { background: var(--rise-soft); color: var(--rise); border: 1px solid rgba(220,38,38,0.25); }
+      .badge.warn { background: var(--good-soft); color: var(--good); border: 1px solid rgba(5,150,105,0.25); }
+      .badge.info { background: var(--warn-soft); color: var(--warn); border: 1px solid rgba(217,119,6,0.25); }
+      .tag-good { color: var(--rise); font-weight: 700; }
+      .tag-warn { color: var(--good); font-weight: 700; }
+      .tag-info { color: var(--warn); font-weight: 700; }
       .grid-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px,1fr)); gap: 14px; }
       .mini-card { padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius-md); background: #fff; box-shadow: var(--shadow-sm); }
       .news-list { display: flex; flex-direction: column; gap: 12px; }
