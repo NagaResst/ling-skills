@@ -52,6 +52,10 @@ SSE_DAILY_SUMMARY_HEADERS = {
 NORTHBOUND_WEEKLY_COMPONENT_TYPES = ("002", "004")
 NORTHBOUND_WEEKLY_AGGREGATE_TYPE = "006"
 MARKET_TURNOVER_SCOPE = "沪深京A股"
+EXTERNAL_REQUEST_ATTEMPTS = 4
+EXTERNAL_REQUEST_BACKOFF_SECONDS = 1
+EXTERNAL_REQUEST_MAX_BACKOFF_SECONDS = 8
+RETRYABLE_HTTP_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
 
 
 class RequiredQuantitativeDataUnavailable(RuntimeError):
@@ -148,20 +152,72 @@ def safe_int(value):
     return int(numeric)
 
 
-def get_sse_daily_turnover_with_retry(date, attempts=3):
-    """Retry only transient SSE connection failures from AkShare's single-shot client."""
-    last_error = None
+def is_retryable_external_error(error):
+    if isinstance(error, requests.HTTPError):
+        response = error.response
+        return response is None or response.status_code in RETRYABLE_HTTP_STATUS_CODES
+    return isinstance(
+        error,
+        (
+            requests.RequestException,
+            urllib3.exceptions.HTTPError,
+            ConnectionError,
+            TimeoutError,
+            json.JSONDecodeError,
+        ),
+    )
+
+
+def call_external_with_retry(operation, source, attempts=EXTERNAL_REQUEST_ATTEMPTS):
+    """Run an external operation with bounded exponential backoff for transient failures."""
+    if attempts < 1:
+        raise ValueError("外部请求重试次数必须至少为1")
+
     for attempt in range(attempts):
         try:
-            return ak.stock_sse_deal_daily(date=date)
-        except (requests.RequestException, ConnectionError) as error:
-            last_error = error
+            return operation()
+        except Exception as error:
+            if not is_retryable_external_error(error) or attempt + 1 == attempts:
+                raise
             if attempt + 1 < attempts:
-                sleep(attempt + 1)
+                delay = min(
+                    EXTERNAL_REQUEST_BACKOFF_SECONDS * (2 ** attempt),
+                    EXTERNAL_REQUEST_MAX_BACKOFF_SECONDS,
+                )
+                sleep(delay)
 
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("上交所日度成交额重试未执行")
+
+def get_external_response_with_retry(url, source, *, session=None, **kwargs):
+    """Issue an HTTP GET and include status validation in the retryable operation."""
+    client = session if session is not None else requests
+
+    def request_response():
+        response = client.get(url, **kwargs)
+        response.raise_for_status()
+        return response
+
+    return call_external_with_retry(request_response, source)
+
+
+def get_external_json_with_retry(url, source, *, session=None, **kwargs):
+    """Issue an HTTP GET and retry transient malformed JSON responses as well."""
+    client = session if session is not None else requests
+
+    def request_json():
+        response = client.get(url, **kwargs)
+        response.raise_for_status()
+        return response.json()
+
+    return call_external_with_retry(request_json, source)
+
+
+def get_sse_daily_turnover_with_retry(date, attempts=EXTERNAL_REQUEST_ATTEMPTS):
+    """Fetch SSE daily turnover through the shared transient-failure retry policy."""
+    return call_external_with_retry(
+        lambda: ak.stock_sse_deal_daily(date=date),
+        source="上交所日度成交额",
+        attempts=attempts,
+    )
 
 
 def sanitize_for_json(value):
@@ -201,8 +257,9 @@ def get_prior_day_cutoff(as_of_date):
 
     for offset in range(1, 32):
         candidate_date = target_date - timedelta(days=offset)
-        response = requests.get(
+        payload = get_external_json_with_retry(
             SSE_DAILY_SUMMARY_URL,
+            source="上交所交易日历",
             params={
                 "sqlId": SSE_DAILY_SUMMARY_SQL_ID,
                 "PRODUCT_CODE": "01,02,03,11,17",
@@ -212,8 +269,7 @@ def get_prior_day_cutoff(as_of_date):
             headers=SSE_DAILY_SUMMARY_HEADERS,
             timeout=20,
         )
-        response.raise_for_status()
-        result = response.json().get("result")
+        result = payload.get("result")
         if isinstance(result, list) and result:
             return candidate_date
 
@@ -717,8 +773,9 @@ def fetch_eastmoney_mutual_deal_history(start_date, end_date):
     page_number = 1
 
     while True:
-        response = requests.get(
+        payload = get_external_json_with_retry(
             EASTMONEY_MUTUAL_HISTORY_URL,
+            source="东财北向资金历史",
             params={
                 "sortColumns": "TRADE_DATE,MUTUAL_TYPE",
                 "sortTypes": "1,1",
@@ -732,8 +789,7 @@ def fetch_eastmoney_mutual_deal_history(start_date, end_date):
             },
             timeout=20,
         )
-        response.raise_for_status()
-        payload = response.json() or {}
+        payload = payload or {}
         result = payload.get("result") or {}
         rows = result.get("data") or []
         all_rows.extend(rows)
@@ -831,7 +887,10 @@ def get_hs_margin_summary(as_of_date):
     """全市场融资融券余额（含沪深+北交所），来自 stock_margin_account_info。"""
     try:
         cutoff_date = get_prior_day_cutoff(as_of_date)
-        df = ak.stock_margin_account_info()
+        df = call_external_with_retry(
+            ak.stock_margin_account_info,
+            source="证监会融资融券余额",
+        )
         if df is None or df.empty:
             return {"status": "not_found", "requested_as_of_date": as_of_date, "cutoff_date": str(cutoff_date)}
 
@@ -893,22 +952,24 @@ def get_bse_market_turnover(cutoff_date):
             "Accept": "application/json, text/javascript, */*; q=0.01",
             "Referer": "https://www.bse.cn/",
         }
-        challenge_response = session.get(
+        challenge_response = get_external_response_with_retry(
             "https://www.bse.cn/",
+            source="北交所访问校验",
+            session=session,
             headers=headers,
             timeout=20,
         )
-        challenge_response.raise_for_status()
         cookie_match = re.search(r"C3VK=([^;]+)", challenge_response.text)
         if cookie_match:
             session.cookies.set("C3VK", cookie_match.group(1), domain="www.bse.cn", path="/")
 
-        response = session.get(
+        response = get_external_response_with_retry(
             "https://www.bse.cn/bseHome/index.do",
+            source="北交所市场总貌",
+            session=session,
             headers=headers,
             timeout=20,
         )
-        response.raise_for_status()
         jsonp_match = re.fullmatch(r"\s*(?:[A-Za-z_$][\w$]*|null)\((.*)\)\s*;?\s*", response.text, re.S)
         if not jsonp_match:
             raise ValueError("北交所市场总貌接口未返回JSONP数据")
@@ -955,7 +1016,10 @@ def get_market_turnover_summary(as_of_date):
         if sse_main_board_yi is None or sse_star_market_yi is None:
             raise ValueError("上交所日度数据缺少主板A或科创板成交金额")
 
-        szse_daily = ak.stock_szse_summary(date=target_date).set_index("证券类别")
+        szse_daily = call_external_with_retry(
+            lambda: ak.stock_szse_summary(date=target_date),
+            source="深交所日度成交额",
+        ).set_index("证券类别")
         szse_main_board_yuan = safe_float(szse_daily.loc["主板A股", "成交金额"], 2)
         szse_growth_board_yuan = safe_float(szse_daily.loc["创业板A股", "成交金额"], 2)
         if szse_main_board_yuan is None or szse_growth_board_yuan is None:
@@ -1018,8 +1082,12 @@ def get_market_turnover_summary(as_of_date):
 
 def get_sina_etf_history(symbol):
     url = f"https://finance.sina.com.cn/realstock/company/{symbol}/hisdata_klc2/klc_kl.js"
-    response = requests.get(url, timeout=20, verify=False)
-    response.raise_for_status()
+    response = get_external_response_with_retry(
+        url,
+        source="新浪ETF历史K线",
+        timeout=20,
+        verify=False,
+    )
     if "=" not in response.text:
         raise ValueError(f"unexpected payload for {symbol}")
 
@@ -1059,8 +1127,9 @@ def get_eastmoney_etf_history(code):
     for endpoint in endpoints:
         for secid in secid_candidates:
             try:
-                response = requests.get(
+                payload = get_external_json_with_retry(
                     endpoint,
+                    source="东财ETF历史K线",
                     headers=headers,
                     params={
                         "secid": secid,
@@ -1075,8 +1144,7 @@ def get_eastmoney_etf_history(code):
                     },
                     timeout=20,
                 )
-                response.raise_for_status()
-                payload = response.json() or {}
+                payload = payload or {}
                 klines = ((payload.get("data") or {}).get("klines")) or []
                 if not klines:
                     raise ValueError(f"empty kline for secid={secid}")
@@ -1212,23 +1280,15 @@ def _get_single_market_index_daily_eastmoney(symbol, code, name, as_of_date):
     end_date = target_date.strftime("%Y%m%d")
 
     try:
-        last_error = None
-        df = None
-        for attempt in range(5):
-            try:
-                df = ak.stock_zh_index_daily_em(
-                    symbol=symbol,
-                    start_date=start_date,
-                    end_date=end_date,
-                )
-                break
-            except (requests.RequestException, ConnectionError) as exc:
-                last_error = exc
-                if attempt < 4:
-                    sleep(attempt * attempt + 1)
-
-        if df is None:
-            raise last_error or RuntimeError("宽基指数历史接口未返回数据")
+        df = call_external_with_retry(
+            lambda: ak.stock_zh_index_daily_em(
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+            ),
+            source="东财宽基指数日线",
+            attempts=5,
+        )
 
         if df.empty:
             return {
@@ -1297,14 +1357,14 @@ def get_tencent_index_daily(symbol, code, name, as_of_date):
     """
     target_date = get_prior_day_cutoff(as_of_date)
     try:
-        response = requests.get(
+        payload = get_external_json_with_retry(
             "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+            source="腾讯指数日K",
             params={"param": f"{symbol},day,,,32,qfq"},
             headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
             timeout=15,
         )
-        response.raise_for_status()
-        node = (response.json().get("data") or {}).get(symbol) or {}
+        node = (payload.get("data") or {}).get(symbol) or {}
         rows = node.get("day") or node.get("qfqday") or []
     except Exception as exc:
         return {
@@ -1388,8 +1448,9 @@ def get_csindex_index_daily(code, name, as_of_date):
     target_date = get_prior_day_cutoff(as_of_date)
     start_date = (target_date - timedelta(days=30)).strftime("%Y%m%d")
     try:
-        response = requests.get(
+        payload = get_external_json_with_retry(
             "https://www.csindex.com.cn/csindex-home/perf/index-perf",
+            source="中证指数日行情",
             params={
                 "indexCode": code,
                 "startDate": start_date,
@@ -1398,8 +1459,7 @@ def get_csindex_index_daily(code, name, as_of_date):
             headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.csindex.com.cn/"},
             timeout=15,
         )
-        response.raise_for_status()
-        rows = (response.json().get("data")) or []
+        rows = (payload.get("data")) or []
     except Exception as exc:
         return {
             "code": code,
@@ -1494,7 +1554,10 @@ def get_core_market_index_daily(as_of_date):
 def get_shanghai_gold_9999_daily(as_of_date):
     target_date = get_prior_day_cutoff(as_of_date)
     try:
-        df = ak.spot_hist_sge(symbol="Au99.99")
+        df = call_external_with_retry(
+            lambda: ak.spot_hist_sge(symbol="Au99.99"),
+            source="上海黄金交易所Au99.99历史行情",
+        )
         if df.empty:
             return {
                 "code": "Au99.99",
@@ -1564,7 +1627,10 @@ def get_ths_industry_daily(as_of_date):
     start_date = (target_date - timedelta(days=15)).strftime("%Y%m%d")
     end_date = target_date.strftime("%Y%m%d")
     try:
-        name_df = ak.stock_board_industry_name_ths()
+        name_df = call_external_with_retry(
+            ak.stock_board_industry_name_ths,
+            source="同花顺行业板块列表",
+        )
         if name_df is None or name_df.empty or "name" not in name_df.columns:
             return {
                 "status": "error",
@@ -1588,8 +1654,11 @@ def get_ths_industry_daily(as_of_date):
     missed = []
     for board_name, board_code in zip(board_names, board_codes):
         try:
-            df = ak.stock_board_industry_index_ths(
-                symbol=board_name, start_date=start_date, end_date=end_date
+            df = call_external_with_retry(
+                lambda: ak.stock_board_industry_index_ths(
+                    symbol=board_name, start_date=start_date, end_date=end_date
+                ),
+                source=f"同花顺行业板块日线:{board_name}",
             )
             if df is None or df.empty:
                 missed.append(board_name)
@@ -1676,9 +1745,15 @@ def get_sw_l2_industry_daily(as_of_date):
         page = 1
         while True:
             params = dict(base_params, page=str(page))
-            response = requests.get(url, params=params, headers=headers, verify=False, timeout=30)
-            response.raise_for_status()
-            data = (response.json() or {}).get("data") or {}
+            payload = get_external_json_with_retry(
+                url,
+                source="申万二级行业日报",
+                params=params,
+                headers=headers,
+                verify=False,
+                timeout=30,
+            )
+            data = (payload or {}).get("data") or {}
             page_rows = data.get("results") or []
             rows.extend(page_rows)
             total = data.get("count")
@@ -1778,8 +1853,9 @@ def get_sw_l2_with_ths_fallback(as_of_date):
 
 
 def get_eastmoney_fund_nav(code, cutoff_date):
-    response = requests.get(
+    payload = get_external_json_with_retry(
         EASTMONEY_FUND_NAV_URL,
+        source="东财基金官方净值",
         headers={
             "User-Agent": "Mozilla/5.0",
             "Referer": "https://fundf10.eastmoney.com/",
@@ -1793,8 +1869,7 @@ def get_eastmoney_fund_nav(code, cutoff_date):
         },
         timeout=20,
     )
-    response.raise_for_status()
-    payload = response.json() or {}
+    payload = payload or {}
     if payload.get("ErrCode") not in (0, "0", None):
         raise ValueError(f"Eastmoney F10 error: {payload.get('ErrCode')}")
 
@@ -1823,7 +1898,10 @@ def get_fund_nav_batch(holdings):
         cutoff_date = get_prior_day_cutoff(item["as_of_date"])
         primary_failure = None
         try:
-            df_hist = ak.fund_open_fund_info_em(symbol=code, indicator="单位净值走势")
+            df_hist = call_external_with_retry(
+                lambda: ak.fund_open_fund_info_em(symbol=code, indicator="单位净值走势"),
+                source=f"AkShare基金官方净值:{code}",
+            )
             if df_hist.empty:
                 primary_failure = "AkShare returned an empty NAV history"
                 raise ValueError(primary_failure)
